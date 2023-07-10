@@ -29,6 +29,7 @@ const CMD_ENTRY cmd_table[] = {
 	{ "help",	cmd_help		},
 	{ "cls",	cmd_clearscreen	},
 	{ "ver",	cmd_version		},
+	{ "hd",		cmd_memdump		},
 	{ "md",		cmd_memdump		},
 	{ "mw",		cmd_memwrite	},
 	{ "map",	cmd_showmap		},
@@ -269,18 +270,26 @@ int cmd_memdump(int argc, char *argv[])
 	bool	  havekey, quit = false;
 	uint32_t  addr = 0;
 	int		  c;
+	bool	  one_block_only = false;
 
 	if (argc < 2) {
 		printf("Usage: %s <address>\n", argv[0]);
 		return -1;
 	}
+
+	one_block_only = (strcmp(argv[0], "hd") == 0);
+
 	addr = strtoul(argv[1], NULL, 0);
-	// round off to 512-byte boundary
-	addr &= ~(512 - 1);
+	// round off to 256-byte block_len boundary
+	addr &= ~(block_len - 1);
 
 	do {
 		memcpy(buffer, (uint8_t *)addr, block_len);
 		pr_hex_dump(addr, buffer, block_len);
+
+		if (one_block_only) {
+			break;
+		}
 
 		printf("...");
 		fflush(stdout);
@@ -356,6 +365,7 @@ int cmd_memwrite(int argc, char *argv[])
 	if (argc < 3) {
 		goto usage;
 	}
+	
 	addr = strtoul(argv[1], NULL, 0);
 
 	for (argnum = 2; argnum < argc; argnum++) {
