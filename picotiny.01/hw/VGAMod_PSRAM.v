@@ -1,6 +1,5 @@
-`define PSRAM_USE_MODULE
 
-`ifdef PSRAM_USE_MODULE
+
 module Pico_PSRAM (
     input  clk_osc,
     input  hclk_mem,
@@ -54,7 +53,7 @@ module Pico_PSRAM (
         .data_mask      (data_mask_i)       //input [7:0] data_mask
     );
 
-    reg [1:0] state;  // 0: write a byte, 1: read the byte back
+    reg [1:0] state;
     reg [5:0] cycle;  // 14 cycles between write and read
     reg [31:0] read_back;
     reg [7:0] read_count;
@@ -62,7 +61,24 @@ module Pico_PSRAM (
 
     assign mem_s_ready = completed;
     assign mem_s_rdata = read_back;
-    assign sys_resetn  = resetn;
+    assign sys_resetn = resetn;
+    // write enables are negated for data_mask bits
+    assign we0 = ~mem_s_wstrb[0];
+    assign we1 = ~mem_s_wstrb[1];
+    assign we2 = ~mem_s_wstrb[2];
+    assign we3 = ~mem_s_wstrb[3];
+
+    /* To get a linear readback from the words written, brute-force
+     * remapping of the write location was worked out here. */
+    wire [2:0] w_remap[0:7];
+    assign w_remap[0] = 3'd0;  //good
+    assign w_remap[1] = 3'd7;
+    assign w_remap[2] = 3'd2;  //good
+    assign w_remap[3] = 3'd1;
+    assign w_remap[4] = 3'd4;  //good
+    assign w_remap[5] = 3'd3;
+    assign w_remap[6] = 3'd6;  //good
+    assign w_remap[7] = 3'd5;
 
     always @(posedge mclk_out) begin
         if (!sys_resetn) begin
@@ -77,64 +93,84 @@ module Pico_PSRAM (
 				begin
                     // if mem_s_valid -> state change: 11 == wbp_write, 10 == wbp_read
                     if (mem_s_valid) begin
-                        addr_i[20:0] <= mem_s_addr[22:2];
                         cycle <= 0;
                         completed <= 0;
                         if (mem_s_wstrb != 0) begin
+                            /* First cycle of write setup: because the CPU only
+                             * writes 32-bit words, only the first setted-up
+                             * address is written, the rest of the wasted burst
+                             * are masked off */
                             state <= 2'b11;  // set to write_state
-                            data_mask_i <= {
-                                2'b11,
-                                ~mem_s_wstrb[3],
-                                ~mem_s_wstrb[1],
-                                2'b11,
-                                ~mem_s_wstrb[2],
-                                ~mem_s_wstrb[0]
-                            };
+                            addr_i[20:0] <= {mem_s_addr[22:5], w_remap[mem_s_addr[4:2]]};
                             wrdata_i <= mem_s_wdata;
+                            data_mask_i <= {2'b11, we3, we1, 2'b11, we2, we0};
                             cmd_i <= 1;
+                            cmd_en_i <= 1;
                         end else begin
-                            state <= 2'b10;  // set to read_State
-                            data_mask_i <= 0;
-                            read_count <= 0;
-                            cmd_i <= 0;
+                            /* First cycle of read setup: here all 32-bit words
+                             * of the burst are read back, but only the relevant
+                             * one is given back to the CPU. */
+                            state        <= 2'b10;  // set to read_State
+                            addr_i[20:0] <= (mem_s_addr[22:2] & 21'b1_1111_1111_1111_1111_1000);
+                            data_mask_i  <= 'b0;
+                            read_count   <= 0;
+                            cmd_i        <= 0;
+                            cmd_en_i     <= 1;
                         end
-                        cmd_en_i <= 1;
                     end
                 end
                 2'b11: begin  // wbp_write state
-                    cycle <= cycle + 6'b1;
-                    if (cycle == 13) begin
-                        // IPUG 943 - Table 4-2, Tcmd is 14 when burst==16
-                        cycle <= 0;
-                        state <= 0;
-                        completed <= 1;
-                    end
                     cmd_en_i <= 0;
-                    data_mask_i <= 8'hff;  // stop writing after 32-bits (4-bytes)
+                    cycle <= cycle + 1'b1;
+                    case (cycle)
+                        default: begin
+                            // stop writing after the first 32-bit word
+                            data_mask_i <= 8'hff;
+                        end
+                        13: begin
+                            // IPUG 943 - Table 4-2, Tcmd is 14 when burst==16
+                            completed <= 1;
+                            cycle <= 0;
+                            state <= 0;
+                        end
+                    endcase
                 end
                 2'b10: begin  // wbp_read state
-                    if (cycle != 8'b11_1111) cycle <= cycle + 1'b1;
-                    if (cycle == 0) begin
-                        cmd_i <= 0;
-                        cmd_en_i <= 1;
-                    end else begin
-                        cmd_en_i <= 0;
-                        if (rd_data_valid) begin
-                            read_count <= read_count + 1'b1;
-                            if (read_count == 0) begin
-                                //read_back[15:0] <= rd_data[15:0]; // is good
-                            end else if (read_count == 1) begin
-                                //read_back[31:16] <= rd_data[31:16]; // is good
-                                // instead of two 16-bit word, readback of single 32-bit word is also good
-                                read_back[31:0] <= rd_data[31:0];
-                            end else if (read_count == 2) begin
-                                //read_back[47:32] <= rd_data[47:32];
-                            end else if (read_count == 3) begin
-                                //read_back[63:48] <= rd_data[63:48];
+                    cmd_en_i <= 0;
+                    if (rd_data_valid) begin
+                        read_count <= read_count + 1'b1;
+                        case (read_count)
+                            0: begin
+                                if (mem_s_addr[4:3] == 2'b00) begin
+                                    if (~mem_s_addr[2]) read_back[31:0] <= rd_data[31:0];
+                                    else read_back[31:0] <= rd_data[63:32];
+                                end
+                            end
+                            1: begin
+                                if (mem_s_addr[4:3] == 2'b01) begin
+                                    if (~mem_s_addr[2]) read_back[31:0] <= rd_data[31:0];
+                                    else read_back[31:0] <= rd_data[63:32];
+                                end
+                            end
+                            2: begin
+                                if (mem_s_addr[4:3] == 2'b10) begin
+                                    if (~mem_s_addr[2]) read_back[31:0] <= rd_data[31:0];
+                                    else read_back[31:0] <= rd_data[63:32];
+                                end
+                            end
+                            3: begin
+                                if (mem_s_addr[4:3] == 2'b11) begin
+                                    if (~mem_s_addr[2]) read_back[31:0] <= rd_data[31:0];
+                                    else read_back[31:0] <= rd_data[63:32];
+                                end
                                 completed <= 1;
                                 state <= 0;
                             end
-                        end
+                            default: begin
+                                completed <= 1;
+                                state <= 0;
+                            end
+                        endcase
                     end
                 end
             endcase
@@ -142,11 +178,6 @@ module Pico_PSRAM (
     end
 
 endmodule
-`endif
-
-
-
-
 
 
 module VGAMod (
