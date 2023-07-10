@@ -15,11 +15,11 @@ to be 800x480), so my experiments will use that screen and parameters.
 ### picotiny.01
 - Mainly to hookup the FPGA built-in 8MB PSRAM to a memory space of the
 PicoRV32 (at 0xc0000000).
-- Because I changed the UART's (based on simpleuart.v) so many times, which
-also needed a modification and re-compile of the BootROM contents, I changed
-the simpleuart.v with my own implementation based on the module's fixed clock
-oscillator of 27MHz. This module now ignores the CPU_FREQ changes and works
-at a fixed 115200bps, which is expected by the BootROM bootloader for 
+- Because I changed the UART's clock (based on simpleuart.v) so many times,
+which also needed a modification and re-compile of the BootROM contents, I
+changed the simpleuart.v with my own implementation based on the module's fixed
+clock oscillator of 27MHz. This module now ignores the CPU_FREQ changes and
+works at a fixed 115200bps, which is expected by the BootROM bootloader for 
 firmware uploads.
 - I changed the HDMI output (based on SVO.v) to VGAMod.v, which displays a
 colour bar pattern to a 5-inch 800x480 LCD, but modified for my 7-inch 1024x600
