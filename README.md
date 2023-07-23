@@ -35,6 +35,8 @@ the riscv-none-elf-objcopy does not work. So the original example's of
 GNU_RiscV_Eclipse_8.2.0/bin/riscv-none-embed-objcopy had to be used. Both
 toolchains can be downloaded from: https://xpack.github.io/
 
-
+### picotiny.02
+- First attempt of picoRV32-read/writeable PSRAM- Framebuffer for LCD.
+- Performance is really slow.
 
 ___
