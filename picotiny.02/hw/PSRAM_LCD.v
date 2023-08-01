@@ -62,9 +62,10 @@ module PSRAM_FRAMEBUFFER_LCD (
     reg [5:0] Data_G;
     reg [4:0] Data_B;
     wire [15:0] dout_o;
+    reg framestart;
 
     wire CounterXmaxed = (CounterX == (LCD_WIDTH + H_FrontPorch + H_PulseWidth + H_BackPorch));
-    wire CounterYmaxed = (CounterY == (LCD_HEIGHT+V_FrontPorch+V_PulseWidth+V_BackPorch));  // 600 + 12 + 3 + 20
+    wire CounterYmaxed = (CounterY == (LCD_HEIGHT + V_FrontPorch + V_PulseWidth + V_BackPorch));
 
     always @(posedge pclk)
         if (CounterXmaxed) CounterX <= 0;
@@ -83,7 +84,7 @@ module PSRAM_FRAMEBUFFER_LCD (
     end
 
     always @(posedge pclk) begin
-        inDisplayArea <= (CounterX < (LCD_WIDTH + 0)) && (CounterY < LCD_HEIGHT);
+        inDisplayArea <= (CounterX <= LCD_WIDTH) && (CounterY <= LCD_HEIGHT);
         Data_R <= dout_o[15:11];
         Data_G <= dout_o[10:5];
         Data_B <= dout_o[4:0];
@@ -95,14 +96,6 @@ module PSRAM_FRAMEBUFFER_LCD (
     assign LCD_R = Data_R;
     assign LCD_G = Data_G;
     assign LCD_B = Data_B;
-    // assign LCD_R = 5'b10000;
-    // assign LCD_G = 6'b110000;
-    // assign LCD_B = 5'b10000;
-    // endmodule
-
-    // module Pico_PSRAM (
-
-    // );
 
     reg cmd_en_i;
     reg cmd_i;
@@ -167,11 +160,8 @@ module PSRAM_FRAMEBUFFER_LCD (
     reg vdma_wstrb;
     reg vdma_waitinc;
     reg [7:0] vdma_blkcnt;
+    reg [9:0] vdma_lineidx;
     localparam VDMA_MAXBLKCNT = 8'd64;
-    // wire [63:0] vdma_wdata = 64'hFFFF_0000_f800_0000;
-    // wire vdma_wstrb = 1'b1;
-    // assign vdma_waddr = {6'b000000, read_count[1:0]};
-    // assign vdma_wdata = rd_data;
 
     wire vdma_read = (vdma_start_sr[2:1] == 2'b01);
 
@@ -186,8 +176,10 @@ module PSRAM_FRAMEBUFFER_LCD (
             vdma_waitinc <= 0;
             vdma_start_sr <= 0;
             vdma_blkcnt <= 0;
+            vdma_lineidx <= 0;
         end else begin
-            vdma_start_sr = {vdma_start_sr[1:0], vga_HS && (CounterY < LCD_HEIGHT)};
+            // vdma_start_sr = {vdma_start_sr[1:0], vga_HS && (CounterY < LCD_HEIGHT)};
+            vdma_start_sr = {vdma_start_sr[1:0], vga_HS};
             case (state)
                 default:    // 2'b00:
                 begin
@@ -195,25 +187,24 @@ module PSRAM_FRAMEBUFFER_LCD (
                     cycle <= 0;
                     completed <= 0;
                     vdma_wstrb <= 0;
-                    // if (vdma_waitinc) begin
-                    //     vdma_waitinc <= 0;
-                    //     state <= 0;
-                    // end else 
-                    if (vdma_read) begin
-                        state        <= 2'b11;  // set to vdma_read_State
-                        addr_i       <= {CounterY, 6'b0, 3'b0};
-                        data_mask_i  <= 'b0;
-                        read_count   <= 0;
-                        cmd_i        <= 0;
-                        cmd_en_i     <= 1;
-                        vdma_waitinc <= 0;
-                        vdma_blkcnt  <= 0;
+
+                    if (vdma_start_sr[2:1] == 2'b01) begin
+                        if (CounterY < LCD_HEIGHT) begin
+                            // i.e. 0 < CounterY < 600
+                            state        <= 2'b11;  // set to vdma_read_State
+                            addr_i       <= {vdma_lineidx, vdma_blkcnt[5:0], 3'b0};
+                            data_mask_i  <= 'b0;
+                            read_count   <= 0;
+                            cmd_i        <= 0;
+                            cmd_en_i     <= 1;
+                            vdma_waitinc <= 0;
+                            vdma_blkcnt  <= 0;
+                        end else begin
+                            vdma_lineidx <= 0;
+                        end
                     end else if (vdma_blkcnt > 0 && vdma_blkcnt < VDMA_MAXBLKCNT) begin
                         state        <= 2'b11;  // set to vdma_read_State
-                        /*
-                         * [20:0] FIXME: SO CAN STILL ADD CounterY
-                         */
-                        addr_i       <= {CounterY, vdma_blkcnt[5:0], 3'b0};
+                        addr_i       <= {vdma_lineidx, vdma_blkcnt[5:0], 3'b0};
                         data_mask_i  <= 'b0;
                         read_count   <= 0;
                         cmd_i        <= 0;
@@ -242,6 +233,8 @@ module PSRAM_FRAMEBUFFER_LCD (
                             cmd_i        <= 0;
                             cmd_en_i     <= 1;
                         end
+                    end else begin
+
                     end
                 end
                 2'b01: begin  // wbp_write state
@@ -303,17 +296,14 @@ module PSRAM_FRAMEBUFFER_LCD (
                     cycle <= cycle + 1'b1;
                     if (rd_data_valid) begin
                         read_count <= read_count + 1'b1;
-                        // vdma_waddr <= {6'b000000, read_count[1:0]};
                         vdma_waddr <= {vdma_blkcnt[5:0], read_count[1:0]};
                         vdma_wdata <= rd_data;
                         vdma_wstrb <= 1'b1;
                         if (read_count == 7'd3) begin
-                            /* last uint64_t read */
-                            // if (vdma_blkcnt < VDMA_MAXBLKCNT) begin
-                            // vdma_blkcnt <= vdma_blkcnt + 1'b1;
-                            // end
                             state <= 0;
-                            vdma_blkcnt <= vdma_blkcnt + 1'b1;
+                            if (vdma_blkcnt == (VDMA_MAXBLKCNT - 1))
+                                vdma_lineidx <= vdma_lineidx + 1'b1;
+                            vdma_blkcnt  <= vdma_blkcnt + 1'b1;
                             vdma_waitinc <= 1;
                         end
                     end
