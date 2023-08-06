@@ -47,4 +47,8 @@ typedef struct {
 #define LCD_FBADDR	   0xc0000000
 #define LCD_PIXELBYTES 2
 
+#define LCD_RED	  0xf800
+#define LCD_GREEN 0x07e0
+#define LCD_BLUE  0x001f
+
 #endif /* __HWDEFS_H__ */

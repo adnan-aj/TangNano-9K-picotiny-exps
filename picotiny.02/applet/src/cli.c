@@ -8,6 +8,7 @@
 #include "picotiny_hw.h"
 #include "cli.h"
 #include "sysutils.h"
+#include "fb_graphics.h"
 
 int errno;
 
@@ -22,8 +23,11 @@ int cmd_version(int argc, char *argv[]);
 int cmd_memdump(int argc, char *argv[]);
 int cmd_memwrite(int argc, char *argv[]);
 int cmd_showmap(int argc, char *argv[]);
-int cmd_cleargscreen(int argc, char *argv[]);
-
+int cmd_gclearscreen(int argc, char *argv[]);
+int cmd_drawpoint(int argc, char *argv[]);
+int cmd_drawline(int argc, char *argv[]);
+int cmd_drawcircle(int argc, char *argv[]);
+int cmd_gsetcolor(int argc, char *argv[]);
 // clang-format off
 const CMD_ENTRY cmd_table[] = {
 	{ "?",		cmd_help			},
@@ -34,7 +38,11 @@ const CMD_ENTRY cmd_table[] = {
 	{ "md",		cmd_memdump			},
 	{ "mw",		cmd_memwrite		},
 	{ "map",	cmd_showmap			},
-	{ "clg",	cmd_cleargscreen	},
+	{ "clg",	cmd_gclearscreen	},
+	{ "pt",		cmd_drawpoint		},
+	{ "line",	cmd_drawline		},
+	{ "circle",	cmd_drawcircle		},
+	{ "color",	cmd_gsetcolor		},
 	{ 0, 0 },
 };
 // clang-format on
@@ -369,7 +377,7 @@ int cmd_memwrite(int argc, char *argv[])
 	if (argc < 3) {
 		goto usage;
 	}
-	
+
 	addr = strtoul(argv[1], NULL, 0);
 	/* Add the PSRAM offset so testing this region is easier for now */
 	addr += 0xc0000000;
@@ -431,8 +439,210 @@ int cmd_showmap(int argc, char *argv[])
 	return 0;
 }
 
-int cmd_cleargscreen(int argc, char *argv[])
+int cmd_gclearscreen(int argc, char *argv[])
 {
-	memset((void*)LCD_FBADDR, 0, LCD_WIDTH * LCD_HEIGHT * LCD_PIXELBYTES);
+	memset((void *)LCD_FBADDR, 0, LCD_WIDTH * LCD_HEIGHT * LCD_PIXELBYTES);
 }
 
+// static uint32_t fgcolor_argb = 0xffffffff;
+
+// int plot_point(int x, int y, uint32_t argb)
+// {
+// 	if (x < 0 || x > LCD_WIDTH || y < 0 || y > LCD_HEIGHT)
+// 		return -1;
+
+// 	uint32_t point_addr = ((y * LCD_WIDTH) + x) * LCD_PIXELBYTES + LCD_FBADDR;
+// 	uint16_t rgb16 = ((argb >> 8) & LCD_RED) |
+// 					 ((argb >> 5) & LCD_GREEN) |
+// 					 ((argb >> 3) & LCD_BLUE);
+// 	// printf("setting address 0x%08x with 0x%04X\n", point_addr, rgb16);
+// 	*(uint16_t *)point_addr = rgb16;
+// 	return 0;
+// }
+
+// int plot_line(int x0, int y0, int x1, int y1, uint32_t argb)
+// {
+// 	// https://gist.github.com/bert/1085538
+// 	// clang-format off
+// 	int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+// 	int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+// 	int err = dx + dy, e2; /* error value e_xy */
+// 	for (;;) { /* loop */
+// 		plot_point(x0, y0, argb);
+// 		if (x0 == x1 && y0 == y1) break;
+// 		e2 = 2 * err;
+// 		if (e2 >= dy) { err += dy;	x0 += sx; } /* e_xy+e_x > 0 */
+// 		if (e2 <= dx) {	err += dx;	y0 += sy; } /* e_xy+e_y < 0 */
+// 	}
+// 	// clang-format on
+// 	return 0;
+// }
+
+// int plot_circle(int xm, int ym, int r, uint32_t argb)
+// {
+// 	// https://gist.github.com/bert/1085538
+// 	// clang-format off
+// 	int x = -r, y = 0, err = 2 - 2 * r; /* II. Quadrant */
+// 	do {
+// 		plot_point(xm - x, ym + y, argb); /*   I. Quadrant */
+// 		plot_point(xm - y, ym - x, argb); /*  II. Quadrant */
+// 		plot_point(xm + x, ym - y, argb); /* III. Quadrant */
+// 		plot_point(xm + y, ym + x, argb); /*  IV. Quadrant */
+// 		r = err;
+// 		if (r > x)  err += ++x * 2 + 1; /* e_xy+e_x > 0 */
+// 		if (r <= y) err += ++y * 2 + 1; /* e_xy+e_y < 0 */
+// 	} while (x < 0);
+// 	// clang-format on
+// 	return 0;
+// }
+
+int cmd_drawline(int argc, char *argv[])
+{
+	int		 x0, y0, x1, y1;
+	uint32_t color = fgcolor_argb;
+
+	if (argc < 5)
+		goto usage;
+	x0 = strtol(argv[1], NULL, 0);
+	if (x0 < 0 || x0 >= LCD_WIDTH)
+		goto usage;
+	y0 = strtol(argv[2], NULL, 0);
+	if (y0 < 0 || y0 >= LCD_HEIGHT)
+		goto usage;
+	x1 = strtol(argv[3], NULL, 0);
+	if (x1 < 0 || x1 >= LCD_WIDTH)
+		goto usage;
+	y1 = strtol(argv[4], NULL, 0);
+	if (y1 < 0 || y1 >= LCD_HEIGHT)
+		goto usage;
+	if (argc > 5)
+		color = strtol(argv[5], NULL, 16);
+	printf("drawing line from (%d, %d) to (%d, %d) with 0x%04X\n",
+		   x0, y0, x1, y1, color);
+	plot_line(x0, y0, x1, y1, color);
+	return 0;
+usage:
+	printf("Usage: %s <x0> <y0> <x1> <y1> [rgb (24-bit in hex)]\n", argv[0]);
+	return -1;
+}
+
+int cmd_drawpoint(int argc, char *argv[])
+{
+	int		 x, y;
+	uint32_t color = fgcolor_argb;
+
+	if (argc < 3)
+		goto usage;
+	x = strtol(argv[1], NULL, 0);
+	if (x < 0 || x >= LCD_WIDTH)
+		goto usage;
+	y = strtol(argv[2], NULL, 0);
+	if (y < 0 || y >= LCD_HEIGHT)
+		goto usage;
+	if (argc > 3)
+		color = strtol(argv[3], NULL, 16);
+
+	// printf("setting point (%d, %d) with 0x%04X\n", x, y, color);
+	plot_point(x, y, color);
+	return 0;
+usage:
+	printf("Usage: %s <x> <y> [rgb (24-bit in hex)]\n", argv[0]);
+	return -1;
+}
+
+int cmd_drawcircle(int argc, char *argv[])
+{
+	int		 x0, y0, rad;
+	uint32_t color = fgcolor_argb;
+
+	if (argc < 4)
+		goto usage;
+	x0 = strtol(argv[1], NULL, 0);
+	if (x0 < 0 || x0 >= LCD_WIDTH)
+		goto usage;
+	y0 = strtol(argv[2], NULL, 0);
+	if (y0 < 0 || y0 >= LCD_HEIGHT)
+		goto usage;
+	rad = strtol(argv[3], NULL, 0);
+	if (rad < 0 || rad >= LCD_WIDTH)
+		goto usage;
+	if (argc > 4)
+		color = strtol(argv[4], NULL, 16);
+	printf("drawing circle at (%d, %d) with radius %d with 0x%04X\n",
+		   x0, y0, rad, color);
+	plot_circle(x0, y0, rad, color);
+	return 0;
+usage:
+	printf("Usage: %s <x0> <y0> <radius> [rgb (24-bit in hex)]\n", argv[0]);
+	return -1;
+}
+
+// typedef struct {
+// 	const char	  *key;
+// 	const uint32_t value;
+// } KEY_UINT32_PAIR;
+
+// clang-format off
+//https://www.rapidtables.com/web/color/RGB_Color.html#RGB%20color%20table
+// const KEY_UINT32_PAIR colornames[] = {
+// 	{"black",	0x000000},
+// 	{"white",	0xFFFFFF},
+// 	{"red",		0xFF0000},
+// 	{"lime",	0x00FF00},
+// 	{"blue",	0x0000FF},
+// 	{"yellow",	0xFFFF00},
+// 	{"cyan",	0x00FFFF},
+// 	{"magenta",	0xFF00FF},
+// 	{"silver",	0xC0C0C0},
+// 	{"gray",	0x808080},
+// 	{"maroon",	0x800000},
+// 	{"olive",	0x808000},
+// 	{"green",	0x008000},
+// 	{"purple",	0x800080},
+// 	{"teal",	0x008080},
+// 	{"navy",	0x000080},
+// 	{NULL, 0x0 }
+// };
+// clang-format on
+
+int cmd_gsetcolor(int argc, char *argv[])
+{
+	uint32_t c = 0;
+	bool	 found = false;
+	if (anyopts(argc, argv, "-h") > 0)
+		goto showcolornames;
+	if (argc < 2)
+		goto usage;
+	if (isalpha(*argv[1])) {
+		int i = 0;
+		for (; colornames[i].key; i++) {
+			if (strcasecmp(colornames[i].key, argv[1]) == 0) {
+				found = true;
+				c = colornames[i].value;
+				printf("Setting color to 0x%08X\n", c);
+				fgcolor_argb = c;
+				break;
+			}
+		}
+		if (!found)
+			printf("Colorname %s not found (use %s -h for color help).\n",
+				   argv[1], argv[0]);
+	}
+	else {
+		c = strtol(argv[1], NULL, 16);
+		printf("Setting color to 0x%08X\n");
+		fgcolor_argb = c;
+	}
+	return 0;
+showcolornames:
+	printf("Available colors:\n");
+	for (int i = 0; colornames[i].key; i++)
+		printf("%s, ", colornames[i].key);
+	printf("\n");
+	return 0;
+usage:
+	printf("%s - Sets foreground color for draw operations\n", argv[0]);
+	printf("Usage: %s [-h (show colors)]<ARGB in 32-bit hex | colorname>\n",
+		   argv[0]);
+	return -1;
+}

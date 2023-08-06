@@ -1,0 +1,107 @@
+
+
+Hello, world!
+A number 12345
+2 numbers 12345 21
+A B C
+A string My first 27MHz-UART pmon
+
+  ____  _          ____         ____
+ |  _ \(_) ___ ___/ ___|  ___  / ___|
+ | |_) | |/ __/ _ \___ \ / _ \| |
+ |  __/| | (_| (_) |__) | (_) | |___
+ |_|   |_|\___\___/____/ \___/ \____|
+
+    On Lichee Tang Nano-9K REBUILT
+
+Cycles: 0x00881b6f 8919919
+Instns: 0x0003df2d 253741
+Chksum: 0x5b8eb866
+
+picomon> ?
+Commands available:
+?, help, cls, ver, hd, md, mw, map, clg, pt, line, circle, color.
+picomon> color
+color - Sets foreground color for draw operations
+Usage: color [-h (show colors)]<ARGB in 32-bit hex | colorname>
+picomon> color -h
+Available colors:
+black, white, red, lime, blue, yellow, cyan, magenta, silver, gray, maroon, olive, green, purple, teal, navy,
+picomon> color gray
+Setting color to 0x400000B3
+picomon>
+picomon>
+picomon> color
+color - Sets foreground color for draw operations
+Usage: color [-h (show colors)]<ARGB in 32-bit hex | colorname>
+picomon> color gray
+Setting color to 0x00808080
+picomon> line 100 100 500 200
+drawing line from (100, 100) to (500, 200) with 0x808080
+picomon> color -h
+Available colors:
+black, white, red, lime, blue, yellow, cyan, magenta, silver, gray, maroon, olive, green, purple, teal, navy,
+picomon> color green
+Setting color to 0x00008000
+picomon>
+picomon>
+picomon> color
+color - Sets foreground color for draw operations
+Usage: color [-h (show colors)]<ARGB in 32-bit hex | colorname>
+picomon> color silver
+Setting color to 0x00C0C0C0
+picomon> line 100 120 500 220
+drawing line from (100, 120) to (500, 220) with 0xC0C0C0
+picomon> color yellow
+Setting color to 0x00FFFF00
+picomon> line 100 140 500 240
+drawing line from (100, 140) to (500, 240) with 0xFFFF00
+picomon> color green
+Setting color to 0x00008000
+picomon> line 100 160 500 260
+drawing line from (100, 160) to (500, 260) with 0x8000
+picomon> color lime
+Setting color to 0x0000FF00
+picomon> line 100 180 500 280
+drawing line from (100, 180) to (500, 280) with 0xFF00
+picomon> color cyan
+Setting color to 0x0000FFFF
+picomon> line 100 200 500 300
+drawing line from (100, 200) to (500, 300) with 0xFFFF
+picomon> color magenta
+Setting color to 0x00FF00FF
+picomon> line 100 220 500 320
+drawing line from (100, 220) to (500, 320) with 0xFF00FF
+picomon> color blue
+Setting color to 0x000000FF
+picomon> line 100 240 500 340
+drawing line from (100, 240) to (500, 340) with 0x00FF
+picomon> color purple
+Setting color to 0x00800080
+picomon> line 100 260 500 360
+drawing line from (100, 260) to (500, 360) with 0x800080
+picomon> color navy
+Setting color to 0x00000080
+picomon> line 100 280 500 380
+drawing line from (100, 280) to (500, 380) with 0x0080
+picomon> color teal
+Setting color to 0x00008080
+picomon> line 100 300 500 400
+drawing line from (100, 300) to (500, 400) with 0x8080
+picomon> circle
+Usage: circle <x0> <y0> <radius> [rgb (24-bit in hex)]
+picomon> circle 500 400 10
+drawing circle at (500, 400) with radius 10 with 0x8080
+picomon> circle 500 400 100
+drawing circle at (500, 400) with radius 100 with 0x8080
+picomon> color cyan
+Setting color to 0x0000FFFF
+picomon> color white
+Setting color to 0x00FFFFFF
+picomon> circle 500 400 100
+drawing circle at (500, 400) with radius 100 with 0xFFFFFF
+picomon> line 0 0 1023 599
+drawing line from (0, 0) to (1023, 599) with 0xFFFFFF
+picomon> line 0 599 1023 0
+drawing line from (0, 599) to (1023, 0) with 0xFFFFFF
+picomon>
