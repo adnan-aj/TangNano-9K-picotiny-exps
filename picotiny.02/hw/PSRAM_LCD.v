@@ -84,7 +84,7 @@ module PSRAM_FRAMEBUFFER_LCD (
     end
 
     always @(posedge pclk) begin
-        inDisplayArea <= (CounterX <= LCD_WIDTH) && (CounterY <= LCD_HEIGHT);
+        inDisplayArea <= (CounterX > 0 && CounterX <= LCD_WIDTH) && (CounterY > 0 && CounterY <= LCD_HEIGHT);
         Data_R <= dout_o[15:11];
         Data_G <= dout_o[10:5];
         Data_B <= dout_o[4:0];
