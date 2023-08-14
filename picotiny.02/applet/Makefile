@@ -42,11 +42,11 @@ endif
 
 RISCV_CLIB=$(RISCV_PATH)/$(RISCV_NAME)/lib/$(MARCH)/$(MABI)/
 
-RISCV_CC = $(RISCV_PATH)/bin/$(RISCV_NAME)-gcc
-RISCV_OBJDUMP = $(RISCV_PATH)/bin/$(RISCV_NAME)-objdump
+RISCV_CC ?= $(RISCV_PATH)/bin/$(RISCV_NAME)-gcc
+RISCV_OBJDUMP ?= $(RISCV_PATH)/bin/$(RISCV_NAME)-objdump
 # RISCV_OBJCOPY = $(RISCV_PATH)/bin/$(RISCV_NAME)-objcopy
 # Can't understand why newer objcopy util does not work???
-RISCV_OBJCOPY = D:/Programs/GNU_RiscV_Eclipse_8.2.0/bin/riscv-none-embed-objcopy
+RISCV_OBJCOPY ?= D:/Programs/GNU_RiscV_Eclipse_8.2.0/bin/riscv-none-embed-objcopy
 
 CFLAGS +=  -MD -fstrict-volatile-bitfields 
 LDFLAGS +=  -lgcc -mcmodel=medany -nostartfiles -ffreestanding \
