@@ -23,6 +23,7 @@ int cmd_version(int argc, char *argv[]);
 int cmd_memdump(int argc, char *argv[]);
 int cmd_memwrite(int argc, char *argv[]);
 int cmd_showmap(int argc, char *argv[]);
+int cmd_gcu_reg(int argc, char *argv[]);
 int cmd_gclearscreen(int argc, char *argv[]);
 int cmd_drawpoint(int argc, char *argv[]);
 int cmd_drawline(int argc, char *argv[]);
@@ -38,6 +39,7 @@ const CMD_ENTRY cmd_table[] = {
 	{ "md",		cmd_memdump			},
 	{ "mw",		cmd_memwrite		},
 	{ "map",	cmd_showmap			},
+	{ "greg",	cmd_gcu_reg			},
 	{ "clg",	cmd_gclearscreen	},
 	{ "pt",		cmd_drawpoint		},
 	{ "line",	cmd_drawline		},
@@ -290,8 +292,6 @@ int cmd_memdump(int argc, char *argv[])
 	one_block_only = (strcmp(argv[0], "hd") == 0);
 
 	addr = strtoul(argv[1], NULL, 0);
-	/* Add the PSRAM offset so testing this region is easier for now */
-	addr += 0xc0000000;
 	// round off to 256-byte block_len boundary
 	addr &= ~(block_len - 1);
 
@@ -435,7 +435,9 @@ int cmd_showmap(int argc, char *argv[])
 		   "    0x81000000 - 0x8100000F SPI Flash Config / Bitbang IO\n"
 		   "    0x82000000 - 0x8200000F GPIO\n"
 		   "    0x83000000 - 0x8300000F UART\n"
-		   "0xC0000000 - 0xFFFFFFFF PSRAM region\n");
+		   "0xC0000000 - 0xFFFFFFFF Expansion region\n"
+		   "    0xC0000000 - 0xC07FFFFF PSRAM/LCD-FB\n"
+		   "    0xC0800000 - 0xC080002F LCD-FB registers\n");
 	return 0;
 }
 
@@ -443,58 +445,6 @@ int cmd_gclearscreen(int argc, char *argv[])
 {
 	memset((void *)LCD_FBADDR, 0, LCD_WIDTH * LCD_HEIGHT * LCD_PIXELBYTES);
 }
-
-// static uint32_t fgcolor_argb = 0xffffffff;
-
-// int plot_point(int x, int y, uint32_t argb)
-// {
-// 	if (x < 0 || x > LCD_WIDTH || y < 0 || y > LCD_HEIGHT)
-// 		return -1;
-
-// 	uint32_t point_addr = ((y * LCD_WIDTH) + x) * LCD_PIXELBYTES + LCD_FBADDR;
-// 	uint16_t rgb16 = ((argb >> 8) & LCD_RED) |
-// 					 ((argb >> 5) & LCD_GREEN) |
-// 					 ((argb >> 3) & LCD_BLUE);
-// 	// printf("setting address 0x%08x with 0x%04X\n", point_addr, rgb16);
-// 	*(uint16_t *)point_addr = rgb16;
-// 	return 0;
-// }
-
-// int plot_line(int x0, int y0, int x1, int y1, uint32_t argb)
-// {
-// 	// https://gist.github.com/bert/1085538
-// 	// clang-format off
-// 	int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-// 	int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-// 	int err = dx + dy, e2; /* error value e_xy */
-// 	for (;;) { /* loop */
-// 		plot_point(x0, y0, argb);
-// 		if (x0 == x1 && y0 == y1) break;
-// 		e2 = 2 * err;
-// 		if (e2 >= dy) { err += dy;	x0 += sx; } /* e_xy+e_x > 0 */
-// 		if (e2 <= dx) {	err += dx;	y0 += sy; } /* e_xy+e_y < 0 */
-// 	}
-// 	// clang-format on
-// 	return 0;
-// }
-
-// int plot_circle(int xm, int ym, int r, uint32_t argb)
-// {
-// 	// https://gist.github.com/bert/1085538
-// 	// clang-format off
-// 	int x = -r, y = 0, err = 2 - 2 * r; /* II. Quadrant */
-// 	do {
-// 		plot_point(xm - x, ym + y, argb); /*   I. Quadrant */
-// 		plot_point(xm - y, ym - x, argb); /*  II. Quadrant */
-// 		plot_point(xm + x, ym - y, argb); /* III. Quadrant */
-// 		plot_point(xm + y, ym + x, argb); /*  IV. Quadrant */
-// 		r = err;
-// 		if (r > x)  err += ++x * 2 + 1; /* e_xy+e_x > 0 */
-// 		if (r <= y) err += ++y * 2 + 1; /* e_xy+e_y < 0 */
-// 	} while (x < 0);
-// 	// clang-format on
-// 	return 0;
-// }
 
 int cmd_drawline(int argc, char *argv[])
 {
@@ -577,34 +527,6 @@ usage:
 	return -1;
 }
 
-// typedef struct {
-// 	const char	  *key;
-// 	const uint32_t value;
-// } KEY_UINT32_PAIR;
-
-// clang-format off
-//https://www.rapidtables.com/web/color/RGB_Color.html#RGB%20color%20table
-// const KEY_UINT32_PAIR colornames[] = {
-// 	{"black",	0x000000},
-// 	{"white",	0xFFFFFF},
-// 	{"red",		0xFF0000},
-// 	{"lime",	0x00FF00},
-// 	{"blue",	0x0000FF},
-// 	{"yellow",	0xFFFF00},
-// 	{"cyan",	0x00FFFF},
-// 	{"magenta",	0xFF00FF},
-// 	{"silver",	0xC0C0C0},
-// 	{"gray",	0x808080},
-// 	{"maroon",	0x800000},
-// 	{"olive",	0x808000},
-// 	{"green",	0x008000},
-// 	{"purple",	0x800080},
-// 	{"teal",	0x008080},
-// 	{"navy",	0x000080},
-// 	{NULL, 0x0 }
-// };
-// clang-format on
-
 int cmd_gsetcolor(int argc, char *argv[])
 {
 	uint32_t c = 0;
@@ -644,5 +566,47 @@ usage:
 	printf("%s - Sets foreground color for draw operations\n", argv[0]);
 	printf("Usage: %s [-h (show colors)]<ARGB in 32-bit hex | colorname>\n",
 		   argv[0]);
+	return -1;
+}
+
+int cmd_gcu_reg(int argc, char *argv[])
+{
+	uint32_t addr, val;
+
+	if (anyopts(argc, argv, "-h") > 0)
+		goto usage;
+
+	if (anyopts(argc, argv, "-a") > 0 || argc < 2) {
+		printf("ctrlstat (0x00): 0x%08X\n", *(uint32_t *)0xc0800000);
+		printf("dispaddr (0x04): 0x%08X\n", *(uint32_t *)0xC0800004);
+		printf("workaddr (0x08): 0x%08X\n", *(uint32_t *)0xC0800008);
+		printf("color    (0x0C): 0x%08X\n", *(uint32_t *)0xC080000C);
+		printf("X0Y0_reg (0x10): 0x%08X\n", *(uint32_t *)0xC0800010);
+		printf("X1Y1_reg (0x14): 0x%08X\n", *(uint32_t *)0xC0800014);
+		printf("size_reg (0x18): 0x%08X\n", *(uint32_t *)0xC0800018);
+		return 0;
+	}
+	if (argc == 3) {
+		if (isxdigit(*argv[1])) {
+			addr = strtoul(argv[1], NULL, 0);
+			val = strtoul(argv[2], NULL, 0);
+			if (addr > 0x18)
+				goto usage;
+			addr += 0xC0800000;
+			*(uint32_t *)addr = val;
+			return 0;
+		}
+		else {
+			// test for reg name
+		}
+	}
+
+	return 0;
+usage:
+	printf("%s - read or set LCD FB registers\n", argv[0]);
+	printf("Usage: %s [-ha] <regaddr/name> <value>\n",
+		   argv[0]);
+	printf("    -h this help\n");
+	printf("    -a show all registers\n");
 	return -1;
 }

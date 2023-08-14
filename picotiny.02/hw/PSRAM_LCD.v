@@ -97,6 +97,17 @@ module PSRAM_FRAMEBUFFER_LCD (
     assign LCD_G = Data_G;
     assign LCD_B = Data_B;
 
+    GCU_Registers gcu_reg (
+        .cpu_clk(clk),
+        .resetn(resetn),
+        .mem_valid(lcdmem_s_valid),
+        .mem_addr(lcdmem_s_addr),
+        .mem_wdata(lcdmem_s_wdata),
+        .mem_wstrb(lcdmem_s_wstrb),
+        .mem_rdata(lcdmem_s_rdata),
+        .mem_ready(lcdmem_s_ready)
+    );
+
     reg cmd_en_i;
     reg cmd_i;
     reg [20:0] addr_i;
@@ -335,3 +346,91 @@ module PSRAM_FRAMEBUFFER_LCD (
 
 endmodule
 
+module GCU_Registers (
+    input cpu_clk,
+    input resetn,
+
+    input mem_valid,
+    input [31:0] mem_addr,
+    input [31:0] mem_wdata,
+    input [3:0] mem_wstrb,
+    output mem_ready,
+    output [31:0] mem_rdata
+);
+    reg [31:0] ctrl_stat_reg;
+    reg [31:0] disp_addr_reg;
+    reg [31:0] work_addr_reg;
+    reg [31:0] color_reg;
+    reg [31:0] x0y0_reg;
+    reg [31:0] x1y1_reg;
+    reg [31:0] size_reg;
+    reg [31:0] rdata_r;
+    reg ready_r;
+
+    always @(posedge cpu_clk) begin
+        if (!resetn) begin
+            ready_r <= 1'b0;
+            ctrl_stat_reg <= 32'b0;
+            disp_addr_reg <= 32'b0;
+            work_addr_reg <= 32'b0;
+            color_reg <= 32'b0;
+            x0y0_reg <= 32'b0;
+            x1y1_reg <= 32'b0;
+            size_reg <= 32'b0;
+        end else begin
+            ready_r <= 1'b0;
+            if (mem_valid && !ready_r) begin
+                ready_r <= 1'b1;
+                case (mem_addr[4:2])
+                    3'd0: begin
+                        if (mem_wstrb[3]) ctrl_stat_reg[31:24] <= mem_wdata[31:24];
+                        if (mem_wstrb[2]) ctrl_stat_reg[24:16] <= mem_wdata[24:16];
+                        if (mem_wstrb[1]) ctrl_stat_reg[15:8] <= mem_wdata[15:8];
+                        if (mem_wstrb[0]) ctrl_stat_reg[7:0] <= mem_wdata[7:0];
+                        rdata_r <= ctrl_reg; // TODO: ADD Status bits into readback of control register
+                    end
+                    3'd1: begin
+                        if (mem_wstrb[3]) disp_addr_reg[31:24] <= mem_wdata[31:24];
+                        if (mem_wstrb[2]) disp_addr_reg[24:16] <= mem_wdata[24:16];
+                        if (mem_wstrb[1]) disp_addr_reg[15:8] <= mem_wdata[15:8];
+                        if (mem_wstrb[0]) disp_addr_reg[7:0] <= mem_wdata[7:0];
+                        rdata_r <= disp_addr_reg;
+                    end
+                    3'd2: begin
+                        if (mem_wstrb[3]) disp_addr_reg[31:24] <= mem_wdata[31:24];
+                        if (mem_wstrb[2]) disp_addr_reg[24:16] <= mem_wdata[24:16];
+                        if (mem_wstrb[1]) disp_addr_reg[15:8] <= mem_wdata[15:8];
+                        if (mem_wstrb[0]) disp_addr_reg[7:0] <= mem_wdata[7:0];
+                        rdata_r <= disp_addr_reg;
+                    end
+                    3'd3: begin
+                        if (mem_wstrb[3]) color_reg[31:24] <= mem_wdata[31:24];
+                        if (mem_wstrb[2]) color_reg[24:16] <= mem_wdata[24:16];
+                        if (mem_wstrb[1]) color_reg[15:8] <= mem_wdata[15:8];
+                        if (mem_wstrb[0]) color_reg[7:0] <= mem_wdata[7:0];
+                        rdata_r <= color_reg;
+                    end
+                    3'd4: begin
+                        if (mem_wstrb[3]) x0y0_reg[31:24] <= mem_wdata[31:24];
+                        if (mem_wstrb[2]) x0y0_reg[24:16] <= mem_wdata[24:16];
+                        if (mem_wstrb[1]) x0y0_reg[15:8] <= mem_wdata[15:8];
+                        if (mem_wstrb[0]) x0y0_reg[7:0] <= mem_wdata[7:0];
+                        rdata_r <= x0y0_reg;
+                    end
+                    3'd5: begin
+                        if (mem_wstrb[3]) x1y1_reg[31:24] <= mem_wdata[31:24];
+                        if (mem_wstrb[2]) x1y1_reg[24:16] <= mem_wdata[24:16];
+                        if (mem_wstrb[1]) x1y1_reg[15:8] <= mem_wdata[15:8];
+                        if (mem_wstrb[0]) x1y1_reg[7:0] <= mem_wdata[7:0];
+                        rdata_r <= x1y1_reg;
+                    end
+                    default: rdata_r <= 32'hDEADBEEF;
+                endcase
+            end
+        end
+    end
+
+    assign mem_ready = ready_r;
+    assign mem_rdata = rdata_r;
+
+endmodule
