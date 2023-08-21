@@ -319,12 +319,12 @@ module picotiny (
     wire [31:0] psram_rdata;
     wire [31:0] psram_wdata;
     wire [3:0] psram_wstrb;
-    wire linebuf_valid;
-    wire linebuf_ready;
-    wire [31:0] linebuf_addr;
-    wire [31:0] linebuf_rdata;
-    wire [31:0] linebuf_wdata;
-    wire [3:0] linebuf_wstrb;
+    wire fbreg_valid;
+    wire fbreg_ready;
+    wire [31:0] fbreg_addr;
+    wire [31:0] fbreg_rdata;
+    wire [31:0] fbreg_wdata;
+    wire [3:0] fbreg_wstrb;
     wire wbp2_valid;
     wire wbp2_ready;
     wire [31:0] wbp2_addr;
@@ -363,12 +363,12 @@ module picotiny (
         .picos0_wstrb(psram_wstrb),
         .picos0_rdata(psram_rdata),
 
-        .picos1_valid(linebuf_valid),
-        .picos1_ready(linebuf_ready),
-        .picos1_addr (linebuf_addr),
-        .picos1_wdata(linebuf_wdata),
-        .picos1_wstrb(linebuf_wstrb),
-        .picos1_rdata(linebuf_rdata),
+        .picos1_valid(fbreg_valid),
+        .picos1_ready(fbreg_ready),
+        .picos1_addr (fbreg_addr),
+        .picos1_wdata(fbreg_wdata),
+        .picos1_wstrb(fbreg_wstrb),
+        .picos1_rdata(fbreg_rdata),
 
         .picos2_valid(wbp2_valid),
         .picos2_ready(wbp2_ready),
@@ -386,26 +386,22 @@ module picotiny (
     );
 
     assign wbp2_ready = 1'b1;
+    assign wbp2_rdata = 32'hEFBEADDE; //DEADBEEF
     assign wbp3_ready = 1'b1;
-
-    //assign wbp_ready = 1'b1;
-    //assign wbp_rdata = 32'hDEADBEEF;
-    // Pico_PSRAM u_Pico_PSRAM (
-    // );
+    assign wbp3_rdata = 32'h0FB00DD0; //D00DB00F
 
     assign LCD_CLK = clk_cpu;
     PSRAM_FRAMEBUFFER_LCD D1 (
         .clk   (clk_cpu),
-        // .resetn(sys_resetn),
         .resetn(resetn),
         .pclk   (clk_cpu),
 
-        .lcdmem_s_valid(linebuf_valid),
-        .lcdmem_s_ready(linebuf_ready),
-        .lcdmem_s_addr (linebuf_addr),
-        .lcdmem_s_wdata(linebuf_wdata),
-        .lcdmem_s_wstrb(linebuf_wstrb),
-        .lcdmem_s_rdata(linebuf_rdata),
+        .reg_valid(fbreg_valid),
+        .reg_ready(fbreg_ready),
+        .reg_addr (fbreg_addr),
+        .reg_wdata(fbreg_wdata),
+        .reg_wstrb(fbreg_wstrb),
+        .reg_rdata(fbreg_rdata),
 
         .LCD_DE   (LCD_DEN),
         .LCD_HSYNC(LCD_HYNC),

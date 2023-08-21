@@ -45,6 +45,7 @@ typedef struct {
 #define LCD_WIDTH	   1024
 #define LCD_HEIGHT	   600
 #define LCD_FBADDR	   0xc0000000
+#define LCD_REGADDR	   0xc1000000
 #define LCD_PIXELBYTES 2
 
 #define LCD_RED	  0xf800

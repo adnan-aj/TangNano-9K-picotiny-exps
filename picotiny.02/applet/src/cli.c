@@ -380,7 +380,7 @@ int cmd_memwrite(int argc, char *argv[])
 
 	addr = strtoul(argv[1], NULL, 0);
 	/* Add the PSRAM offset so testing this region is easier for now */
-	addr += 0xc0000000;
+	// addr += 0xc0000000;
 
 	for (argnum = 2; argnum < argc; argnum++) {
 		char *argp = argv[argnum];
@@ -443,7 +443,12 @@ int cmd_showmap(int argc, char *argv[])
 
 int cmd_gclearscreen(int argc, char *argv[])
 {
-	memset((void *)LCD_FBADDR, 0, LCD_WIDTH * LCD_HEIGHT * LCD_PIXELBYTES);
+	// memset((void *)LCD_FBADDR, 0, LCD_WIDTH * LCD_HEIGHT * LCD_PIXELBYTES);
+	const uint32_t bgcolor_2 = 0x0;
+	uint32_t	  *fbaddr = (uint32_t *)LCD_FBADDR;
+	for (int x = 0; x < LCD_WIDTH * LCD_PIXELBYTES / sizeof(uint32_t); x++)
+		for (int y = 0; y < 600; y++)
+			*fbaddr++ = bgcolor_2;
 }
 
 int cmd_drawline(int argc, char *argv[])
@@ -576,23 +581,25 @@ int cmd_gcu_reg(int argc, char *argv[])
 	if (anyopts(argc, argv, "-h") > 0)
 		goto usage;
 
+	const uint32_t *regaddr_base = (uint32_t *)LCD_REGADDR;
 	if (anyopts(argc, argv, "-a") > 0 || argc < 2) {
-		printf("ctrlstat (0x00): 0x%08X\n", *(uint32_t *)0xc0800000);
-		printf("dispaddr (0x04): 0x%08X\n", *(uint32_t *)0xC0800004);
-		printf("workaddr (0x08): 0x%08X\n", *(uint32_t *)0xC0800008);
-		printf("color    (0x0C): 0x%08X\n", *(uint32_t *)0xC080000C);
-		printf("X0Y0_reg (0x10): 0x%08X\n", *(uint32_t *)0xC0800010);
-		printf("X1Y1_reg (0x14): 0x%08X\n", *(uint32_t *)0xC0800014);
-		printf("size_reg (0x18): 0x%08X\n", *(uint32_t *)0xC0800018);
+		printf("ctrlstat (0x00): 0x%08X\n", *(regaddr_base + 0));
+		printf("dispaddr (0x04): 0x%08X\n", *(regaddr_base + 1));
+		printf("workaddr (0x08): 0x%08X\n", *(regaddr_base + 2));
+		printf("color    (0x0C): 0x%08X\n", *(regaddr_base + 3));
+		printf("X0Y0_reg (0x10): 0x%08X\n", *(regaddr_base + 4));
+		printf("X1Y1_reg (0x14): 0x%08X\n", *(regaddr_base + 5));
+		printf("size_reg (0x18): 0x%08X\n", *(regaddr_base + 6));
 		return 0;
 	}
 	if (argc == 3) {
 		if (isxdigit(*argv[1])) {
 			addr = strtoul(argv[1], NULL, 0);
 			val = strtoul(argv[2], NULL, 0);
-			if (addr > 0x18)
+			if (addr > 6)
 				goto usage;
-			addr += 0xC0800000;
+			addr *= sizeof(uint32_t);
+			addr += LCD_REGADDR;
 			*(uint32_t *)addr = val;
 			return 0;
 		}
