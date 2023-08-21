@@ -443,12 +443,48 @@ int cmd_showmap(int argc, char *argv[])
 
 int cmd_gclearscreen(int argc, char *argv[])
 {
-	// memset((void *)LCD_FBADDR, 0, LCD_WIDTH * LCD_HEIGHT * LCD_PIXELBYTES);
-	const uint32_t bgcolor_2 = 0x0;
-	uint32_t	  *fbaddr = (uint32_t *)LCD_FBADDR;
-	for (int x = 0; x < LCD_WIDTH * LCD_PIXELBYTES / sizeof(uint32_t); x++)
-		for (int y = 0; y < 600; y++)
-			*fbaddr++ = bgcolor_2;
+	bool	 use_sw = false;
+	uint32_t frameaddr = LCD_FBADDR;
+	bool	 use_fgcolor = true;
+	uint32_t rgb32 = 0;
+
+	if (anyopts(argc, argv, "-s") > 0)
+		use_sw = true;
+	if (anyopts(argc, argv, "-0") > 0)
+		frameaddr = LCD_FBADDR;
+	if (anyopts(argc, argv, "-1") > 0)
+		frameaddr = LCD_FBADDR2;
+	// if (colorname2argb(argv[argc - 1], &rgb32) < 0)
+	rgb32 = fgcolor_argb;
+
+	if (use_sw) {
+		uint16_t rgb565 = ((rgb32 >> 8) & LCD_RED) |
+						  ((rgb32 >> 5) & LCD_GREEN) |
+						  ((rgb32 >> 3) & LCD_BLUE);
+		uint32_t  bgcolor_2 = (rgb565 << 16) | rgb565;
+		uint32_t *pixaddr = (uint32_t *)frameaddr;
+		for (int x = 0; x < LCD_WIDTH * LCD_PIXELBYTES / sizeof(uint32_t); x++)
+			for (int y = 0; y < 600; y++)
+				*pixaddr++ = bgcolor_2;
+		return 0;
+	}
+	/* else use hardware accelerated gpu */
+	uint32_t tmp_workaddr = *GPU_WORKADDR;
+	*GPU_WORKADDR = frameaddr;
+	uint32_t tmp_color = *GPU_ARGB;
+	*GPU_ARGB = rgb32;
+	*GPU_CTRLSTAT = 0;
+	*GPU_CTRLSTAT = CTRLSTAT_SETBG;
+	int waitcount = 0;
+	while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
+		;
+	printf("%s: cleared screen in %d counts\n", argv[0], waitcount);
+	*GPU_WORKADDR = tmp_workaddr;
+	*GPU_ARGB = tmp_color;
+	return 0;
+usage:
+	printf("Usage: %s [-0|-1] [-s] [ARGB in 32-bit hex | colorname]\n", argv[0]);
+	return 0;
 }
 
 int cmd_drawline(int argc, char *argv[])
@@ -583,13 +619,13 @@ int cmd_gcu_reg(int argc, char *argv[])
 
 	const uint32_t *regaddr_base = (uint32_t *)LCD_REGADDR;
 	if (anyopts(argc, argv, "-a") > 0 || argc < 2) {
-		printf("ctrlstat (0x00): 0x%08X\n", *(regaddr_base + 0));
-		printf("dispaddr (0x04): 0x%08X\n", *(regaddr_base + 1));
-		printf("workaddr (0x08): 0x%08X\n", *(regaddr_base + 2));
-		printf("color    (0x0C): 0x%08X\n", *(regaddr_base + 3));
-		printf("X0Y0_reg (0x10): 0x%08X\n", *(regaddr_base + 4));
-		printf("X1Y1_reg (0x14): 0x%08X\n", *(regaddr_base + 5));
-		printf("size_reg (0x18): 0x%08X\n", *(regaddr_base + 6));
+		printf("reg 0: ctrlstat (0x00): 0x%08X\n", *GPU_CTRLSTAT);
+		printf("reg 1: dispaddr (0x04): 0x%08X\n", *GPU_DISPADDR);
+		printf("reg 2: workaddr (0x08): 0x%08X\n", *GPU_WORKADDR);
+		printf("reg 3: color    (0x0C): 0x%08X\n", *GPU_ARGB);
+		printf("reg 4: X0Y0_reg (0x10): 0x%08X\n", *GPU_X0Y0);
+		printf("reg 5: X1Y1_reg (0x14): 0x%08X\n", *GPU_X1Y1);
+		printf("reg 6: size_reg (0x18): 0x%08X\n", *GPU_SIZE);
 		return 0;
 	}
 	if (argc == 3) {
