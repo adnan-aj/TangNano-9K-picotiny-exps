@@ -34,6 +34,15 @@ const KEY_UINT32_PAIR colornames[] = {
 	{NULL, 0x0 }
 };
 // clang-format on
+const char *colorname(uint32_t argb)
+{
+	KEY_UINT32_PAIR *p = colornames;
+	for (; p->key != NULL; p++) {
+		if (p->value == (argb & 0xFFFFFF))
+			return p->key;
+	}
+	return NULL;
+}
 
 int plot_point(int x, int y, uint32_t argb)
 {

@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -22,6 +23,7 @@ int cmd_clearscreen(int argc, char *argv[]);
 int cmd_version(int argc, char *argv[]);
 int cmd_memdump(int argc, char *argv[]);
 int cmd_memwrite(int argc, char *argv[]);
+int cmd_memread(int argc, char *argv[]);
 int cmd_showmap(int argc, char *argv[]);
 int cmd_gcu_reg(int argc, char *argv[]);
 int cmd_gclearscreen(int argc, char *argv[]);
@@ -29,6 +31,7 @@ int cmd_drawpoint(int argc, char *argv[]);
 int cmd_drawline(int argc, char *argv[]);
 int cmd_drawcircle(int argc, char *argv[]);
 int cmd_gsetcolor(int argc, char *argv[]);
+int cmd_msectest(int argc, char *argv[]);
 // clang-format off
 const CMD_ENTRY cmd_table[] = {
 	{ "?",		cmd_help			},
@@ -38,6 +41,7 @@ const CMD_ENTRY cmd_table[] = {
 	{ "hd",		cmd_memdump			},
 	{ "md",		cmd_memdump			},
 	{ "mw",		cmd_memwrite		},
+	{ "mr",		cmd_memread			},
 	{ "map",	cmd_showmap			},
 	{ "greg",	cmd_gcu_reg			},
 	{ "clg",	cmd_gclearscreen	},
@@ -45,6 +49,7 @@ const CMD_ENTRY cmd_table[] = {
 	{ "line",	cmd_drawline		},
 	{ "circle",	cmd_drawcircle		},
 	{ "color",	cmd_gsetcolor		},
+	{ "msec",	cmd_msectest		},
 	{ 0, 0 },
 };
 // clang-format on
@@ -367,6 +372,40 @@ int cmd_memdump(int argc, char *argv[])
 	return 0;
 }
 
+int cmd_memread(int argc, char *argv[])
+{
+	int		 word_size = 2; // default 32-bit
+	uint32_t addr = 0;
+
+	if (argc < 2)
+		goto usage;
+	if (anyopts(argc, argv, "-b") > 0)
+		word_size = 0;
+	if (anyopts(argc, argv, "-s") > 0)
+		word_size = 1;
+	if (!isxdigit((int)*argv[argc - 1]))
+		goto usage;
+
+	addr = strtoul(argv[argc - 1], NULL, 0);
+
+	switch (word_size) {
+	case 0:
+		printf("0x%02x\n", *(uint8_t *)addr);
+		break;
+	case 1:
+		printf("0x%04x\n", *(uint16_t *)(addr & ~0x1));
+		break;
+	default:
+		printf("0x%08x\n", *(uint32_t *)(addr & ~0x3));
+		break;
+	}
+	return 0;
+usage:
+	printf("Usage: %s [-bsw] <addr>\n", argv[0]);
+	printf("    -b ubyte, -s ushort -w uint32(default)\n ");
+	return -1;
+}
+
 int cmd_memwrite(int argc, char *argv[])
 {
 	uint32_t addr;
@@ -447,6 +486,8 @@ int cmd_gclearscreen(int argc, char *argv[])
 	uint32_t frameaddr = LCD_FBADDR;
 	bool	 use_fgcolor = true;
 	uint32_t rgb32 = 0;
+	uint32_t start_msec, end_msec;
+	int		 waitcount = 0;
 
 	if (anyopts(argc, argv, "-s") > 0)
 		use_sw = true;
@@ -457,6 +498,7 @@ int cmd_gclearscreen(int argc, char *argv[])
 	// if (colorname2argb(argv[argc - 1], &rgb32) < 0)
 	rgb32 = fgcolor_argb;
 
+	start_msec = systime_msec();
 	if (use_sw) {
 		uint16_t rgb565 = ((rgb32 >> 8) & LCD_RED) |
 						  ((rgb32 >> 5) & LCD_GREEN) |
@@ -466,21 +508,25 @@ int cmd_gclearscreen(int argc, char *argv[])
 		for (int x = 0; x < LCD_WIDTH * LCD_PIXELBYTES / sizeof(uint32_t); x++)
 			for (int y = 0; y < 600; y++)
 				*pixaddr++ = bgcolor_2;
-		return 0;
 	}
-	/* else use hardware accelerated gpu */
-	uint32_t tmp_workaddr = *GPU_WORKADDR;
-	*GPU_WORKADDR = frameaddr;
-	uint32_t tmp_color = *GPU_ARGB;
-	*GPU_ARGB = rgb32;
-	*GPU_CTRLSTAT = 0;
-	*GPU_CTRLSTAT = CTRLSTAT_SETBG;
-	int waitcount = 0;
-	while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
-		;
-	printf("%s: cleared screen in %d counts\n", argv[0], waitcount);
-	*GPU_WORKADDR = tmp_workaddr;
-	*GPU_ARGB = tmp_color;
+	else {
+		/* else use hardware accelerated gpu */
+		uint32_t tmp_workaddr = lcd_regs->workaddr;
+		lcd_regs->workaddr = frameaddr;
+		uint32_t tmp_color = lcd_regs->argb;
+		lcd_regs->argb = rgb32;
+		lcd_regs->ctrlstat = 0;
+		lcd_regs->ctrlstat = CTRLSTAT_SETBG;
+
+		while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
+			;
+		lcd_regs->workaddr = tmp_workaddr;
+		lcd_regs->argb = tmp_color;
+	}
+
+	end_msec = systime_msec();
+	printf("%s: cleared screen in %d counts, %ld msecs\n",
+		   argv[0], waitcount, end_msec - start_msec);
 	return 0;
 usage:
 	printf("Usage: %s [-0|-1] [-s] [ARGB in 32-bit hex | colorname]\n", argv[0]);
@@ -572,10 +618,18 @@ int cmd_gsetcolor(int argc, char *argv[])
 {
 	uint32_t c = 0;
 	bool	 found = false;
-	if (anyopts(argc, argv, "-h") > 0)
+
+	if (anyopts(argc, argv, "-l") > 0)
 		goto showcolornames;
-	if (argc < 2)
+	if (anyopts(argc, argv, "-h") > 0)
 		goto usage;
+
+	if (argc == 1) {
+		const char *color_str = colorname(fgcolor_argb);
+		printf("#%08X %s\n", fgcolor_argb, color_str == NULL ? "" : color_str);
+		return 0;
+	}
+
 	if (isalpha(*argv[1])) {
 		int i = 0;
 		for (; colornames[i].key; i++) {
@@ -605,7 +659,10 @@ showcolornames:
 	return 0;
 usage:
 	printf("%s - Sets foreground color for draw operations\n", argv[0]);
-	printf("Usage: %s [-h (show colors)]<ARGB in 32-bit hex | colorname>\n",
+	printf("Usage: %s [-h][-l] [ARGB in 32-bit hex | colorname]\n"
+		   "    no args shows current color setting\n"
+		   "    -h this help\n"
+		   "    -l show colors\n",
 		   argv[0]);
 	return -1;
 }
@@ -652,4 +709,28 @@ usage:
 	printf("    -h this help\n");
 	printf("    -a show all registers\n");
 	return -1;
+}
+
+int cmd_msectest(int argc, char *argv[])
+{
+	uint32_t t;
+	uint32_t prev_msec = 0;
+	int		 sec_cnt = 10;
+
+	if (argc > 1) {
+		sec_cnt = atoi(argv[1]);
+	}
+	printf("Counting for %d seconds:\n", sec_cnt);
+
+	prev_msec = systime_msec();
+	for (int i = 0; i < sec_cnt; i++) {
+		do {
+			t = systime_msec();
+		} while (t - prev_msec < 1000);
+
+		prev_msec = t;
+
+		printf("%d secs msec=%ld\n", i + 1, prev_msec);
+	}
+	return 0;
 }

@@ -35,4 +35,7 @@ inline float mapf(float x, float in_min, float in_max, float out_min, float out_
 #define stringify_expanded(x)	 stringify_literal(x)
 #define stringify_with_quotes(x) stringify_expanded(stringify_expanded(x))
 
+#define systime_msec()					(my_devices->msec)
+#define msec_expired(PREV_MSEC, PERIOD) (((systime_msec() - (PREV_MSEC)) & UINT_MAX) > (PERIOD))
+
 #endif /* __SYSUTILS_H__ */

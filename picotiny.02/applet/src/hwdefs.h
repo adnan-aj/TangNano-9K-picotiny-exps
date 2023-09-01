@@ -51,6 +51,18 @@ typedef struct {
 #define LCD_GREEN 0x07e0
 #define LCD_BLUE  0x001f
 
+typedef struct {
+	volatile uint32_t ctrlstat;
+	volatile uint32_t dispaddr;
+	volatile uint32_t workaddr;
+	volatile uint32_t argb;
+	volatile uint32_t x0y0;
+	volatile uint32_t x1y1;
+	volatile uint32_t size;
+} LCD_REGS_T;
+
+#define lcd_regs ((LCD_REGS_T *)LCD_REGADDR)
+
 #define GPU_CTRLSTAT ((uint32_t *)LCD_REGADDR + 0)
 #define GPU_DISPADDR ((uint32_t *)LCD_REGADDR + 1)
 #define GPU_WORKADDR ((uint32_t *)LCD_REGADDR + 2)
@@ -61,5 +73,13 @@ typedef struct {
 
 #define CTRLSTAT_BUSY  0x0001
 #define CTRLSTAT_SETBG 0x0002
+
+typedef struct {
+	volatile uint32_t msec;
+	volatile uint32_t spare;
+} MY_DEVS_T;
+
+#define MY_DEVS_REGADDR 0xc2000000
+#define my_devices		((MY_DEVS_T *)MY_DEVS_REGADDR)
 
 #endif /* __HWDEFS_H__ */

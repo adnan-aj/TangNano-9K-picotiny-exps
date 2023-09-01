@@ -310,8 +310,8 @@ module picotiny (
 
 
     // WBP_S0 0x8000_0000 -> PSRAM
-    // WBP_S1 0x8100_0000 -> Line Buf
-    // WBP_S2 0x8200_0000 -> Spare
+    // WBP_S1 0x8100_0000 -> LCD FB Regs
+    // WBP_S2 0x8200_0000 -> My peripherals
     // WBP_S3 0x8300_0000 -> Spare
     wire psram_valid;
     wire psram_ready;
@@ -385,10 +385,10 @@ module picotiny (
         .picos3_rdata(wbp3_rdata)
     );
 
-    assign wbp2_ready = 1'b1;
-    assign wbp2_rdata = 32'hEFBEADDE; //DEADBEEF
+    // assign wbp2_ready = 1'b1;
+    // assign wbp2_rdata = 32'hEFBEADDE;  //DEADBEEF
     assign wbp3_ready = 1'b1;
-    assign wbp3_rdata = 32'h0FB00DD0; //D00DB00F
+    assign wbp3_rdata = 32'h0FB00DD0;  //D00DB00F
 
     assign LCD_CLK = clk_cpu;
     PSRAM_FRAMEBUFFER_LCD D1 (
@@ -431,4 +431,16 @@ module picotiny (
         .O_psram_reset_n(O_psram_reset_n)
     );
 
+    MyPeripherals myperiphs (
+        .osc_clk(clk_osc27),
+        .cpu_clk(clk_cpu),
+        .resetn (sys_resetn),
+
+        .mem_valid(wbp2_valid),
+        .mem_ready(wbp2_ready),
+        .mem_addr (wbp2_addr),
+        .mem_wdata(wbp2_wdata),
+        .mem_wstrb(wbp2_wstrb),
+        .mem_rdata(wbp2_rdata)
+    );
 endmodule
