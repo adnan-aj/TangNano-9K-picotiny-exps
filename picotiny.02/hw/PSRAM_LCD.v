@@ -101,6 +101,7 @@ module PSRAM_FRAMEBUFFER_LCD (
     wire [22:0] disp_addr;
     wire [22:0] work_addr;
     wire [15:0] rgb565;
+    wire [31:0] x0y0_point;
     wire is_busy;
 
     FB_Registers fb_regs (
@@ -117,6 +118,7 @@ module PSRAM_FRAMEBUFFER_LCD (
         .disp_addr(disp_addr),
         .work_addr(work_addr),
         .rgb565(rgb565),
+        .x0y0_point(x0y0_point),
         .busy_i(gpu_is_busy)
     );
 
@@ -193,7 +195,19 @@ module PSRAM_FRAMEBUFFER_LCD (
     reg [22:0] set_bg_lineaddr;
     reg [ 7:0] set_bg_blkcnt;
     reg [ 9:0] set_bg_linecnt;
-    assign gpu_is_busy = gpu_setbg_start | gpu_setbg_cont;
+    reg [ 1:0] gpu_setpt_sr;
+    reg gpu_setpt_start, gpu_setpt_cont;
+    reg [7:0] set_pt_blkcnt;
+    wire [15:0] x0_val, y0_val;
+    wire [22:0] y0_lineaddr;
+    wire [22:0] x0_blkaddr;
+
+    assign x0_val = x0y0_point[15:0];
+    assign y0_val = x0y0_point[31:16];
+    assign y0_lineaddr = work_addr + y0_val * VDMA_LINEADDR_STRIDE;
+    assign x0_blkaddr = y0_lineaddr + ((x0_val * 2) & 16'b1111_1111_1110_0000);
+
+    assign gpu_is_busy = gpu_setbg_start | gpu_setbg_cont | gpu_setpt_start | gpu_setpt_cont;
 
 
     always @(posedge mclk_out) begin
@@ -213,10 +227,14 @@ module PSRAM_FRAMEBUFFER_LCD (
             gpu_setbg_cont <= 0;
             set_bg_blkcnt <= 0;
             set_bg_linecnt <= 0;
+            gpu_setpt_start <= 0;
+            gpu_setpt_cont <= 0;
         end else begin
             vdma_start_sr = {vdma_start_sr[1:0], vga_HS};
             gpu_setbg_sr <= {gpu_setbg_sr[0], gpu_ctrl[1]};
             if (gpu_setbg_sr[1:0] == 2'b01) gpu_setbg_start <= 1;
+            gpu_setpt_sr <= {gpu_setpt_sr[0], gpu_ctrl[2]};
+            if (gpu_setpt_sr[1:0] == 2'b01) gpu_setpt_start <= 1;
             case (state)
                 default:    /* Idle and decision-making state */
                 begin
@@ -262,7 +280,7 @@ module PSRAM_FRAMEBUFFER_LCD (
                         end else begin
                             /* First cycle of read setup: here all 32-bit words
                              * of the burst are read back, but only the relevant
-                             * one is given back to the CPU. */
+                             * one-readcycle is given back to the CPU. */
                             state        <= 2;  // set to read_State
                             addr_i[20:0] <= (mem_s_addr[22:2] & 21'b1_1111_1111_1111_1111_1000);
                             data_mask_i  <= 'b0;
@@ -274,21 +292,31 @@ module PSRAM_FRAMEBUFFER_LCD (
                         /* same like PSRAM write, but setup to write bgcolor */
                         state           <= 4;
                         gpu_setbg_start <= 0;
-                        gpu_setbg_cont  <= 1;
                         if (gpu_setbg_start) begin
+                            gpu_setbg_cont <= 1;
                             set_bg_blkcnt <= 0;
                             set_bg_linecnt <= 0;
                             set_bg_lineaddr <= work_addr;
                             addr_i <= {work_addr[22:11], set_bg_blkcnt[5:0], 3'b0};
                         end else begin
-                            addr_i <= {
-                                set_bg_lineaddr[22:11], set_bg_blkcnt[5:0], 3'b0
-                            };  // IS THIS 21 BITS?
+                            addr_i <= {set_bg_lineaddr[22:11], set_bg_blkcnt[5:0], 3'b0};
                         end
-                        wrdata_i    <= {rgb565, rgb565, rgb565, rgb565};
-                        data_mask_i <= 8'h00;
                         cmd_i       <= 1;
                         cmd_en_i    <= 1;
+                        wrdata_i    <= {rgb565, rgb565, rgb565, rgb565};
+                        data_mask_i <= 8'h00;
+                    end else if (gpu_setpt_start || gpu_setpt_cont) begin
+                        state <= 5;
+                        gpu_setpt_start <= 0;
+                        gpu_setpt_cont <= 1;
+                        // enable PSRAM write
+                        cmd_i <= 1;
+                        cmd_en_i <= 1;
+                        // set write data same as set_bg, but mask-on the correct pixel
+                        wrdata_i    <= {rgb565, rgb565, rgb565, rgb565};
+                        // just for testing, write 4-pixels for visibility
+                        data_mask_i <= 8'h00;
+                        addr_i <= x0_blkaddr >> 2;
                     end
                 end
                 1: begin  /* PSRAM write state */
@@ -354,11 +382,8 @@ module PSRAM_FRAMEBUFFER_LCD (
                     end
                     case (cycle)
                         default: begin
-                            data_mask_i <= 8'hff;
-                        end
-                        0, 1, 2: begin
-                            // wrdata_i    <= {rgb565, rgb565, rgb565, rgb565};
-                            // data_mask_i <= 8'h00;  // keep writing all bits
+                            // keep writing all bits
+                            // no need to update wrdata_i and data_mask_i
                         end
                         13: begin
                             cycle <= 0;
@@ -370,6 +395,30 @@ module PSRAM_FRAMEBUFFER_LCD (
                             end else begin
                                 set_bg_blkcnt <= set_bg_blkcnt + 1'b1;
                             end
+                        end
+                    endcase
+                end
+                5: begin
+                    /* draw a point from x0y0_reg with color_reg
+                     * this will serve as a test of (a) calculating lineaddr from Y0
+                     * with multiplication-and-add to workaddr_reg (b) calculating
+                     * of byte(?) address and mask for pixel x-axis from X0. */
+                    /* gpu_setbg: same like PSRAM write state but write mem with bgcolor */
+                    cmd_en_i <= 0;
+                    cycle <= cycle + 1'b1;
+                    case (cycle)
+                        0, 1, 2: begin
+                            // just for testing write to blkaddr 1st 4-pixels
+                            data_mask_i <= 8'hff;
+                        end
+                        13: begin
+                            cycle <= 0;
+                            state <= 0;
+                            gpu_setpt_start <= 0;
+                            gpu_setpt_cont <= 0;
+                        end
+                        default: begin
+                            data_mask_i <= 8'hff;
                         end
                     endcase
                 end
@@ -414,6 +463,7 @@ module FB_Registers (
     output [31:0] gpu_ctrl,
     output [22:0] disp_addr,
     output [22:0] work_addr,
+    output [31:0] x0y0_point,
     output [15:0] rgb565,
     input busy_i
 );
@@ -427,9 +477,11 @@ module FB_Registers (
     reg [31:0] rdata_r;
     reg ready_r;
 
-    assign gpu_ctrl  = ctrl_stat_reg;
-    assign disp_addr = disp_addr_reg;
-    assign work_addr = work_addr_reg;
+    assign gpu_ctrl   = ctrl_stat_reg;
+    assign disp_addr  = disp_addr_reg;
+    assign work_addr  = work_addr_reg;
+    assign x0y0_point = x0y0_reg;
+
     wire r0, g0, b0;
     assign r0 = color_reg[19] | color_reg[18] | color_reg[17] | color_reg[16];
     assign g0 = color_reg[10] | color_reg[9] | color_reg[8];

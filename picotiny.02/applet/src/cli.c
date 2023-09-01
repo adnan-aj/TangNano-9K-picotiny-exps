@@ -616,7 +616,8 @@ usage:
 
 int cmd_gsetcolor(int argc, char *argv[])
 {
-	uint32_t c = 0;
+	uint32_t argb32 = 0;
+	bool	 ishexnum = true;
 	bool	 found = false;
 
 	if (anyopts(argc, argv, "-l") > 0)
@@ -630,27 +631,34 @@ int cmd_gsetcolor(int argc, char *argv[])
 		return 0;
 	}
 
-	if (isalpha(*argv[1])) {
-		int i = 0;
-		for (; colornames[i].key; i++) {
+	/* test all chars of arg if it is hexnum */
+	for (char *p = argv[1]; *p; p++)
+		if (!isxdigit(*p))
+			ishexnum = false;
+
+	if (ishexnum) {
+		argb32 = strtol(argv[1], NULL, 16);
+	}
+	else {
+		for (int i = 0; colornames[i].key; i++) {
 			if (strcasecmp(colornames[i].key, argv[1]) == 0) {
+				argb32 = colornames[i].value;
 				found = true;
-				c = colornames[i].value;
-				printf("Setting color to 0x%08X\n", c);
-				fgcolor_argb = c;
 				break;
 			}
 		}
-		if (!found)
+		if (!found) {
 			printf("Colorname %s not found (use %s -h for color help).\n",
 				   argv[1], argv[0]);
+			goto showcolornames;
+		}
 	}
-	else {
-		c = strtol(argv[1], NULL, 16);
-		printf("Setting color to 0x%08X\n");
-		fgcolor_argb = c;
-	}
+
+	printf("Setting color to 0x%08X\n", argb32);
+	fgcolor_argb = argb32;
+	lcd_regs->argb = argb32;
 	return 0;
+
 showcolornames:
 	printf("Available colors:\n");
 	for (int i = 0; colornames[i].key; i++)
