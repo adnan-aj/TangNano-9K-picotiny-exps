@@ -201,11 +201,26 @@ module PSRAM_FRAMEBUFFER_LCD (
     wire [15:0] x0_val, y0_val;
     wire [22:0] y0_lineaddr;
     wire [22:0] x0_blkaddr;
+    wire [15:0] pm;
+    wire [63:0] x0_pixelmask32;
 
     assign x0_val = x0y0_point[15:0];
     assign y0_val = x0y0_point[31:16];
     assign y0_lineaddr = work_addr + y0_val * VDMA_LINEADDR_STRIDE;
     assign x0_blkaddr = y0_lineaddr + ((x0_val * 2) & 16'b1111_1111_1110_0000);
+    // verilog_format: off
+    assign x0_pixelmask32 = ~{
+                            //   pm[31],pm[30],pm[29],pm[28],pm[31],pm[30],pm[29],pm[28],
+                            //   pm[27],pm[26],pm[25],pm[24],pm[27],pm[26],pm[25],pm[24],
+                            //   pm[23],pm[22],pm[21],pm[20],pm[23],pm[22],pm[21],pm[20],
+                            //   pm[19],pm[18],pm[17],pm[16],pm[19],pm[18],pm[17],pm[16],
+                              pm[15],pm[14],pm[13],pm[12],pm[15],pm[14],pm[13],pm[12],
+                              pm[11],pm[10],pm[9], pm[8], pm[11],pm[10],pm[9], pm[8],
+                              pm[7], pm[6], pm[5], pm[4], pm[7], pm[6], pm[5], pm[4],
+                              pm[3], pm[2], pm[1], pm[0], pm[3], pm[2], pm[1], pm[0] };
+    // verilog_format: on
+    // assign pm = 16'b0000_0010; // testing 2nd pixel
+    assign pm = (1'b1 << x0_val[3:0]);
 
     assign gpu_is_busy = gpu_setbg_start | gpu_setbg_cont | gpu_setpt_start | gpu_setpt_cont;
 
@@ -314,8 +329,7 @@ module PSRAM_FRAMEBUFFER_LCD (
                         cmd_en_i <= 1;
                         // set write data same as set_bg, but mask-on the correct pixel
                         wrdata_i    <= {rgb565, rgb565, rgb565, rgb565};
-                        // just for testing, write 4-pixels for visibility
-                        data_mask_i <= 8'h00;
+                        data_mask_i <= x0_pixelmask32[7:0];
                         addr_i <= x0_blkaddr >> 2;
                     end
                 end
@@ -407,18 +421,15 @@ module PSRAM_FRAMEBUFFER_LCD (
                     cmd_en_i <= 0;
                     cycle <= cycle + 1'b1;
                     case (cycle)
-                        0, 1, 2: begin
-                            // just for testing write to blkaddr 1st 4-pixels
-                            data_mask_i <= 8'hff;
-                        end
+                        0: data_mask_i <= x0_pixelmask32[15:8];
+                        1: data_mask_i <= x0_pixelmask32[23:16];
+                        2: data_mask_i <= x0_pixelmask32[31:24];
+                        default: data_mask_i <= 8'hff;
                         13: begin
                             cycle <= 0;
                             state <= 0;
                             gpu_setpt_start <= 0;
                             gpu_setpt_cont <= 0;
-                        end
-                        default: begin
-                            data_mask_i <= 8'hff;
                         end
                     endcase
                 end

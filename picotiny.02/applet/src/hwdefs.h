@@ -73,6 +73,7 @@ typedef struct {
 
 #define CTRLSTAT_BUSY  0x0001
 #define CTRLSTAT_SETBG 0x0002
+#define CTRLSTAT_SETPT 0x0004
 
 typedef struct {
 	volatile uint32_t msec;

@@ -517,9 +517,9 @@ int cmd_gclearscreen(int argc, char *argv[])
 		lcd_regs->argb = rgb32;
 		lcd_regs->ctrlstat = 0;
 		lcd_regs->ctrlstat = CTRLSTAT_SETBG;
-
 		while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
 			;
+		lcd_regs->ctrlstat = 0;
 		lcd_regs->workaddr = tmp_workaddr;
 		lcd_regs->argb = tmp_color;
 	}
@@ -566,24 +566,46 @@ usage:
 int cmd_drawpoint(int argc, char *argv[])
 {
 	int		 x, y;
-	uint32_t color = fgcolor_argb;
+	bool	 use_sw = false;
+	uint32_t color = lcd_regs->argb;
+	// uint32_t start_msec, end_msec;
+	int waitcount = 0;
 
-	if (argc < 3)
+	if (anyopts(argc, argv, "-h") > 0)
 		goto usage;
+	if (anyopts(argc, argv, "-s") > 0)
+		use_sw = true;
+	if (argc < (3 + use_sw ? 1 : 0))
+		goto usage;
+
 	x = strtol(argv[1], NULL, 0);
 	if (x < 0 || x >= LCD_WIDTH)
 		goto usage;
 	y = strtol(argv[2], NULL, 0);
 	if (y < 0 || y >= LCD_HEIGHT)
 		goto usage;
-	if (argc > 3)
-		color = strtol(argv[3], NULL, 16);
+	// if (argc > (3 + use_sw ? 1 : 0))
+	// 	color = strtol(argv[argc - 1], NULL, 16);
+	printf("setting point (%d, %d) with 0x%08X\n", x, y, color);
 
-	// printf("setting point (%d, %d) with 0x%04X\n", x, y, color);
-	plot_point(x, y, color);
+	if (use_sw) {
+		plot_point(x, y, color);
+	}
+	else {
+		lcd_regs->argb = color;
+		lcd_regs->x0y0 = (x & 0xffff) | ((y & 0xffff) << 16);
+		lcd_regs->ctrlstat = 0;
+		lcd_regs->ctrlstat = CTRLSTAT_SETPT;
+		while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
+			;
+		lcd_regs->ctrlstat = 0;
+	}
+
 	return 0;
 usage:
-	printf("Usage: %s <x> <y> [rgb (24-bit in hex)]\n", argv[0]);
+	printf("Usage: %s [-s] <x> <y> [rgb (24-bit in hex)]\n"
+		   "    -s use software drawpoint\n",
+		   argv[0]);
 	return -1;
 }
 
