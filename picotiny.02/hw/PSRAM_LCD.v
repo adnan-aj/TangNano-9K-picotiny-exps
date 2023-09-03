@@ -209,17 +209,11 @@ module PSRAM_FRAMEBUFFER_LCD (
     assign y0_lineaddr = work_addr + y0_val * VDMA_LINEADDR_STRIDE;
     assign x0_blkaddr = y0_lineaddr + ((x0_val * 2) & 16'b1111_1111_1110_0000);
     // verilog_format: off
-    assign x0_pixelmask32 = ~{
-                            //   pm[31],pm[30],pm[29],pm[28],pm[31],pm[30],pm[29],pm[28],
-                            //   pm[27],pm[26],pm[25],pm[24],pm[27],pm[26],pm[25],pm[24],
-                            //   pm[23],pm[22],pm[21],pm[20],pm[23],pm[22],pm[21],pm[20],
-                            //   pm[19],pm[18],pm[17],pm[16],pm[19],pm[18],pm[17],pm[16],
-                              pm[15],pm[14],pm[13],pm[12],pm[15],pm[14],pm[13],pm[12],
+    assign x0_pixelmask32 = ~{pm[15],pm[14],pm[13],pm[12],pm[15],pm[14],pm[13],pm[12],
                               pm[11],pm[10],pm[9], pm[8], pm[11],pm[10],pm[9], pm[8],
                               pm[7], pm[6], pm[5], pm[4], pm[7], pm[6], pm[5], pm[4],
                               pm[3], pm[2], pm[1], pm[0], pm[3], pm[2], pm[1], pm[0] };
     // verilog_format: on
-    // assign pm = 16'b0000_0010; // testing 2nd pixel
     assign pm = (1'b1 << x0_val[3:0]);
 
     assign gpu_is_busy = gpu_setbg_start | gpu_setbg_cont | gpu_setpt_start | gpu_setpt_cont;
