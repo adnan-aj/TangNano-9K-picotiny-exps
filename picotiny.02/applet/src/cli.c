@@ -516,7 +516,7 @@ int cmd_gclearscreen(int argc, char *argv[])
 		uint32_t tmp_color = lcd_regs->argb;
 		lcd_regs->argb = rgb32;
 		lcd_regs->ctrlstat = 0;
-		lcd_regs->ctrlstat = CTRLSTAT_SETBG;
+		lcd_regs->ctrlstat = GPU_SETBG << 1 | 1;
 		while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
 			;
 		lcd_regs->ctrlstat = 0;
@@ -595,7 +595,7 @@ int cmd_drawpoint(int argc, char *argv[])
 		lcd_regs->argb = color;
 		lcd_regs->x0y0 = (x & 0xffff) | ((y & 0xffff) << 16);
 		lcd_regs->ctrlstat = 0;
-		lcd_regs->ctrlstat = CTRLSTAT_SETPT;
+		lcd_regs->ctrlstat = GPU_SETPT << 1 | 1;
 		while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
 			;
 		lcd_regs->ctrlstat = 0;

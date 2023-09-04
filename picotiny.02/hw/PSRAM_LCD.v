@@ -190,6 +190,7 @@ module PSRAM_FRAMEBUFFER_LCD (
     reg [22:0] vdma_lineaddr;
     localparam VDMA_MAXBLKCNT = 8'd64;
     localparam VDMA_LINEADDR_STRIDE = 23'd2048;
+    reg [1:0] gpu_cmd_sr;
     reg [1:0] gpu_setbg_sr;
     reg gpu_setbg_start, gpu_setbg_cont;
     reg [22:0] set_bg_lineaddr;
@@ -238,12 +239,19 @@ module PSRAM_FRAMEBUFFER_LCD (
             set_bg_linecnt <= 0;
             gpu_setpt_start <= 0;
             gpu_setpt_cont <= 0;
+            gpu_cmd_sr <= 0;
         end else begin
             vdma_start_sr = {vdma_start_sr[1:0], vga_HS};
-            gpu_setbg_sr <= {gpu_setbg_sr[0], gpu_ctrl[1]};
-            if (gpu_setbg_sr[1:0] == 2'b01) gpu_setbg_start <= 1;
-            gpu_setpt_sr <= {gpu_setpt_sr[0], gpu_ctrl[2]};
-            if (gpu_setpt_sr[1:0] == 2'b01) gpu_setpt_start <= 1;
+            gpu_cmd_sr <= {gpu_cmd_sr[0], gpu_ctrl[0]};
+            if (gpu_cmd_sr[1:0] == 2'b01)
+                case (gpu_ctrl[2:1])
+                    0: gpu_setbg_start <= 1;
+                    1: gpu_setpt_start <= 1;
+                endcase
+            // gpu_setbg_sr <= {gpu_setbg_sr[0], gpu_ctrl[1]};
+            // if (gpu_setbg_sr[1:0] == 2'b01) gpu_setbg_start <= 1;
+            // gpu_setpt_sr <= {gpu_setpt_sr[0], gpu_ctrl[2]};
+            // if (gpu_setpt_sr[1:0] == 2'b01) gpu_setpt_start <= 1;
             case (state)
                 default:    /* Idle and decision-making state */
                 begin
