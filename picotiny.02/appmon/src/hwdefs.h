@@ -71,9 +71,10 @@ typedef struct {
 #define GPU_X1Y1	 ((uint32_t *)LCD_REGADDR + 5)
 #define GPU_SIZE	 ((uint32_t *)LCD_REGADDR + 6)
 
-#define CTRLSTAT_BUSY  0x0001
-#define GPU_SETBG 0
-#define GPU_SETPT 1
+#define CTRLSTAT_BUSY 0x0001
+#define GPU_SETBG	  1
+#define GPU_SETPT	  2
+#define GPU_SETLN	  3
 
 typedef struct {
 	volatile uint32_t msec;

@@ -10,7 +10,7 @@
 #include "sysutils.h"
 #include "fb_graphics.h"
 
-uint32_t fgcolor_argb = 0xffffffff;
+// uint32_t fgcolor_argb = 0xffffffff;
 
 // clang-format off
 //https://www.rapidtables.com/web/color/RGB_Color.html#RGB%20color%20table
@@ -36,12 +36,39 @@ const KEY_UINT32_PAIR colornames[] = {
 // clang-format on
 const char *colorname(uint32_t argb)
 {
-	KEY_UINT32_PAIR *p = colornames;
+	KEY_UINT32_PAIR const *p = colornames;
 	for (; p->key != NULL; p++) {
 		if (p->value == (argb & 0xFFFFFF))
 			return p->key;
 	}
 	return NULL;
+}
+
+int str2argb32(const char *color_str, uint32_t *argb32)
+{
+	bool ishexnum = true;
+	bool found = false;
+	/* test all chars of arg if it is hexnum */
+	for (char *p = (char *)color_str; *p; p++)
+		if (!isxdigit(*p))
+			ishexnum = false;
+
+	if (ishexnum) {
+		*argb32 = strtol(color_str, NULL, 16);
+	}
+	else {
+		for (int i = 0; colornames[i].key; i++) {
+			if (strcasecmp(colornames[i].key, color_str) == 0) {
+				*argb32 = colornames[i].value;
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			return -1;
+		}
+	}
+	return 0;
 }
 
 int plot_point(int x, int y, uint32_t argb)
