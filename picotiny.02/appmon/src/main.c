@@ -7,6 +7,7 @@
 #include "hwdefs.h"
 #include "picotiny_hw.h"
 #include "cli.h"
+#include "fb_graphics.h"
 
 void (*spi_flashio)(uint8_t *pdata, int length, int wren) = FLASHIO_ENTRY_ADDR;
 
@@ -135,6 +136,8 @@ void main()
 	for (i = 0; i < 10000; i++)
 		;
 
+	init_gui();
+	
 	while (1) {
 		do_nonblock_cli();
 	}

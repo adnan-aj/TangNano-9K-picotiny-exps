@@ -74,7 +74,7 @@ typedef struct {
 #define CTRLSTAT_BUSY 0x0001
 #define GPU_SETBG	  1
 #define GPU_SETPT	  2
-#define GPU_SETLN	  3
+#define GPU_FRECT	  3
 
 typedef struct {
 	volatile uint32_t msec;

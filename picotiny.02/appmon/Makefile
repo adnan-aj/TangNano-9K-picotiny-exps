@@ -1,4 +1,5 @@
 PROJ_NAME=applet
+NANO9K_COMPORT ?= com6
 # DEBUG=no
 DEBUG=yes
 BENCH=no
@@ -29,15 +30,15 @@ CFLAGS += -march=$(MARCH)  -mabi=$(MABI)  -ffunction-sections -fdata-sections --
 LDFLAGS += -march=$(MARCH)  -mabi=$(MABI)  -Wl,--gc-sections
 
 ifeq ($(DEBUG),yes)
-	CFLAGS += -g3 -O0 
+	CFLAGS += -g3 -O0
 endif
 
 ifeq ($(DEBUG),no)
-	CFLAGS += -g -O3 
+	CFLAGS += -g -O3
 endif
 
 ifeq ($(BENCH),yes)
-	CFLAGS += -fno-inline  
+	CFLAGS += -fno-inline
 endif
 
 RISCV_CLIB=$(RISCV_PATH)/$(RISCV_NAME)/lib/$(MARCH)/$(MABI)/
@@ -48,7 +49,7 @@ RISCV_OBJDUMP ?= $(RISCV_PATH)/bin/$(RISCV_NAME)-objdump
 # Can't understand why newer objcopy util does not work???
 RISCV_OBJCOPY ?= D:/Programs/GNU_RiscV_Eclipse_8.2.0/bin/riscv-none-embed-objcopy
 
-CFLAGS +=  -MD -fstrict-volatile-bitfields 
+CFLAGS +=  -MD -fstrict-volatile-bitfields
 LDFLAGS +=  -lgcc -mcmodel=medany -nostartfiles -ffreestanding \
 	-Wl,-Bstatic,-T,$(LDSCRIPT),-Map,$(OBJDIR)/$(PROJ_NAME).map,--print-memory-usage
 
@@ -81,7 +82,7 @@ $(OBJDIR)/%.elf: $(OBJS) | $(OBJDIR)
 
 %.bin: %.elf
 	$(RISCV_OBJCOPY) -O binary $^ $@
-	
+
 %.v: %.elf
 	$(RISCV_OBJCOPY) -O verilog $^ $@
 	cp $@ .
@@ -92,10 +93,10 @@ $(OBJDIR)/%.elf: $(OBJS) | $(OBJDIR)
 $(OBJDIR)/%.o: %.c
 	mkdir -p $(dir $@)
 	$(RISCV_CC) -c $(CFLAGS)  $(INC) -o $@ $^
-	
+
 $(OBJDIR)/%.o: %.cpp
 	mkdir -p $(dir $@)
-	$(RISCV_CC) -c $(CFLAGS)  $(INC) -o $@ $^	
+	$(RISCV_CC) -c $(CFLAGS)  $(INC) -o $@ $^
 
 $(OBJDIR)/%.o: %.S
 	mkdir -p $(dir $@)
@@ -105,7 +106,7 @@ $(OBJDIR):
 	mkdir -p $@
 
 upload: $(OBJDIR)/$(PROJ_NAME).v
-	pico-programmer.py $(OBJDIR)/$(PROJ_NAME).v com6
+	/usr/local/bin/pico-programmer.py $(OBJDIR)/$(PROJ_NAME).v $(NANO9K_COMPORT)
 
 
 clean:
@@ -119,6 +120,3 @@ clean:
 	find $(OBJDIR) -type f -name '*.o' -print0 | xargs -0 -r rm
 
 .SECONDARY: $(OBJS)
-
-
-			

@@ -9,8 +9,14 @@
 #include "cli.h"
 #include "sysutils.h"
 #include "fb_graphics.h"
+#include "allFonts.h"
 
 // uint32_t fgcolor_argb = 0xffffffff;
+int init_gui()
+{
+	fb_setcolor(0xFFFFFF);
+	return 0;
+}
 
 // clang-format off
 //https://www.rapidtables.com/web/color/RGB_Color.html#RGB%20color%20table
@@ -47,7 +53,7 @@ const char *colorname(uint32_t argb)
 int str2argb32(const char *color_str, uint32_t *argb32)
 {
 	bool ishexnum = true;
-	bool found = false;
+
 	/* test all chars of arg if it is hexnum */
 	for (char *p = (char *)color_str; *p; p++)
 		if (!isxdigit(*p))
@@ -55,26 +61,28 @@ int str2argb32(const char *color_str, uint32_t *argb32)
 
 	if (ishexnum) {
 		*argb32 = strtol(color_str, NULL, 16);
+		return 0;
 	}
 	else {
 		for (int i = 0; colornames[i].key; i++) {
 			if (strcasecmp(colornames[i].key, color_str) == 0) {
 				*argb32 = colornames[i].value;
-				found = true;
-				break;
+				return 0;
 			}
 		}
-		if (!found) {
-			return -1;
-		}
 	}
-	return 0;
+	return -1;
 }
 
-int plot_point(int x, int y, uint32_t argb)
+void fb_setcolor(uint32_t argb)
+{
+	lcd_regs->argb = argb;
+}
+
+void plot_point(int16_t x, int16_t y, uint32_t argb)
 {
 	if (x < 0 || x > LCD_WIDTH || y < 0 || y > LCD_HEIGHT)
-		return -1;
+		return;
 
 	uint32_t point_addr = ((y * LCD_WIDTH) + x) * LCD_PIXELBYTES + LCD_FBADDR;
 	uint16_t rgb16 = ((argb >> 8) & LCD_RED) |
@@ -82,7 +90,6 @@ int plot_point(int x, int y, uint32_t argb)
 					 ((argb >> 3) & LCD_BLUE);
 	// printf("setting address 0x%08x with 0x%04X\n", point_addr, rgb16);
 	*(uint16_t *)point_addr = rgb16;
-	return 0;
 }
 
 int plot_line(int x0, int y0, int x1, int y1, uint32_t argb)
@@ -119,4 +126,84 @@ int plot_circle(int xm, int ym, int r, uint32_t argb)
 	} while (x < 0);
 	// clang-format on
 	return 0;
+}
+
+int plot_char(int x, int y, int fontnum, int c)
+{
+	uint8_t *font;
+	switch (fontnum) {
+	case 1:
+		font = (uint8_t *)Callibri15;
+		break;
+	default:
+		font = (uint8_t *)fixed_bold10x15;
+		break;
+	}
+	uint16_t font_l = (font[FONT_LENGTH] << 8) + font[FONT_LENGTH + 1];
+	uint8_t	 font_w = font[FONT_WIDTH];
+	uint8_t	 font_h = font[FONT_HEIGHT];
+	uint8_t	 font_first_c = font[FONT_FIRST_CHAR];
+	uint8_t	 font_char_count = font[FONT_CHAR_COUNT];
+	uint8_t *font_width_tab = &font[FONT_WIDTH_TABLE];
+	uint8_t *font_tab = &font[FONT_WIDTH_TABLE]; // default is NO_CHAR_WIDTH TABLE
+
+	if (font_l > 1) {
+		// printf("Selected font has font_len=%d\n", font_l);
+		font_tab = &font[FONT_WIDTH_TABLE + font_char_count];
+	}
+
+	// printf("%s(): font=%d maxwidth=%d height=%d firstchar=0x%02x font_count=%d \n",
+	// 	   __func__, fontnum, font_w, font_h, font_first_c, font_char_count);
+
+	if (c < font_first_c || c >= font_first_c + font_char_count) {
+		printf("%s(): char 0x%02x out-of-range\n", __func__, c);
+		return x;
+	}
+
+	// printf("first 8 bytes of font_tab: ");
+	// for (int i = 0; i < 8; i++)
+	// 	printf("%02X ", font_tab[i]);
+	// printf("\n");
+
+	int char_w = font_w;
+	int p = 0;
+	if (font_l > 1) {
+		char_w = font_width_tab[c - font_first_c];
+		/* find ptr to font_tab for char c */
+		for (int i = 0; i < (c - font_first_c); i++) {
+			p += font_width_tab[i];
+		}
+	}
+
+	uint8_t *char_tab = &font_tab[(c - font_first_c) * char_w * 2];
+	if (font_l > 1) {
+		char_tab = &font_tab[p * 2];
+	}
+
+	// printf("char 0x%02x(%d) '%c' p=%d width=%d bytes: ", c, c, c, p, char_w);
+	// for (int i = 0; i < char_w * 2; i++)
+	// 	printf("%02X ", char_tab[i]);
+	// printf("\n");
+
+	/* Correct ONLY for font_h <= 16*/
+	for (int i = 0; i < char_w; i++) {
+		int b0 = char_tab[i];
+		for (int j = 0; j < 8; j++) {
+			if (b0 & (1 << j)) {
+				plot_point(x + i, y + j, 0xffffffff);
+			}
+		}
+		if (font_h < 8) {
+			continue;
+		}
+		/* TODO: RECAL the below start and offset bits */
+		int b1 = char_tab[i + char_w];
+		for (int j = 1; j < 8; j++) {
+			if (b1 & (1 << j)) {
+				plot_point(x + i, y + j + 7, 0xffffffff);
+			}
+		}
+	}
+
+	return x + char_w + (font_l > 1 ? 1 : 0);
 }

@@ -28,11 +28,12 @@ int cmd_showmap(int argc, char *argv[]);
 int cmd_gcu_reg(int argc, char *argv[]);
 int cmd_gclearscreen(int argc, char *argv[]);
 int cmd_drawpoint(int argc, char *argv[]);
-int cmd_draw_hline(int argc, char *argv[]);
 int cmd_drawline(int argc, char *argv[]);
 int cmd_drawcircle(int argc, char *argv[]);
 int cmd_gsetcolor(int argc, char *argv[]);
 int cmd_msectest(int argc, char *argv[]);
+int cmd_gprinttext(int argc, char *argv[]);
+int cmd_drawrect(int argc, char *argv[]);
 // clang-format off
 const CMD_ENTRY cmd_table[] = {
 	{ "?",		cmd_help			},
@@ -47,12 +48,12 @@ const CMD_ENTRY cmd_table[] = {
 	{ "greg",	cmd_gcu_reg			},
 	{ "clg",	cmd_gclearscreen	},
 	{ "pt",		cmd_drawpoint		},
-	{ "hl",		cmd_draw_hline		},
-	{ "ln",		cmd_draw_hline		},
 	{ "line",	cmd_drawline		},
+	{ "rect",	cmd_drawrect		},
 	{ "circle",	cmd_drawcircle		},
 	{ "color",	cmd_gsetcolor		},
 	{ "msec",	cmd_msectest		},
+	{ "tt",		cmd_gprinttext		},
 	{ 0, 0 },
 };
 // clang-format on
@@ -585,10 +586,10 @@ int cmd_drawpoint(int argc, char *argv[])
 	if (argc < (3 + (use_sw ? 1 : 0)))
 		goto usage;
 
-	x = strtol(argv[1], NULL, 0);
+	x = strtol(argv[argc - 2], NULL, 0);
 	if (x < 0 || x >= LCD_WIDTH)
 		goto usage;
-	y = strtol(argv[2], NULL, 0);
+	y = strtol(argv[argc - 1], NULL, 0);
 	if (y < 0 || y >= LCD_HEIGHT)
 		goto usage;
 	printf("drawing point (%d, %d) with 0x%08X\n", x, y, color);
@@ -612,42 +613,6 @@ usage:
 	printf("Usage: %s [-s] <x> <y>\n"
 		   "    -s use software drawpoint\n",
 		   argv[0]);
-	return -1;
-}
-
-int cmd_draw_hline(int argc, char *argv[])
-{
-	int		 x0, x1, y;
-	bool	 use_sw = false;
-	uint32_t color = lcd_regs->argb;
-	int		 waitcount = 0;
-
-	if (anyopts(argc, argv, "-h") > 0 || argc != 4)
-		goto usage;
-
-	y = strtol(argv[1], NULL, 0);
-	if (y < 0 || y >= LCD_HEIGHT)
-		goto usage;
-	x0 = strtol(argv[2], NULL, 0);
-	if (x0 < 0 || x0 >= LCD_WIDTH)
-		goto usage;
-	x1 = strtol(argv[3], NULL, 0);
-	if (x1 < 0 || x1 >= LCD_WIDTH)
-		goto usage;
-	printf("drawing line (%d, %d) to (%d, %d) with 0x%08X\n", x0, y, x1, y, color);
-
-	lcd_regs->argb = color;
-	lcd_regs->x0y0 = (x0 & 0xffff) | ((y & 0xffff) << 16);
-	lcd_regs->x1y1 = (x1 & 0xffff) | ((y & 0xffff) << 16);
-	lcd_regs->ctrlstat = 0;
-	lcd_regs->ctrlstat = GPU_SETLN << 1 | 1;
-	while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
-		;
-	lcd_regs->ctrlstat = 0;
-
-	return 0;
-usage:
-	printf("Usage: %s <y> <x0> <x1>\n", argv[0]);
 	return -1;
 }
 
@@ -694,28 +659,7 @@ int cmd_gsetcolor(int argc, char *argv[])
 		printf("#%08X %s\n", argb32, color_str == NULL ? "" : color_str);
 		return 0;
 	}
-
-	/* test all chars of arg if it is hexnum */
-	// for (char *p = argv[1]; *p; p++)
-	// 	if (!isxdigit(*p))
-	// 		ishexnum = false;
-	// if (ishexnum) {
-	// 	argb32 = strtol(argv[1], NULL, 16);
-	// }
-	// else {
-	// 	for (int i = 0; colornames[i].key; i++) {
-	// 		if (strcasecmp(colornames[i].key, argv[1]) == 0) {
-	// 			argb32 = colornames[i].value;
-	// 			found = true;
-	// 			break;
-	// 		}
-	// 	}
-	// 	if (!found) {
-	// 		printf("Colorname %s not found (use %s -h for color help).\n",
-	// 			   argv[1], argv[0]);
-	// 		goto showcolornames;
-	// 	}
-	// }
+	/* argc > 1 */
 	if (str2argb32(argv[1], &argb32) < 0) {
 		printf("Hexcolor or Colorname %s not found (use %s -h for color help).\n",
 			   argv[1], argv[0]);
@@ -807,4 +751,78 @@ int cmd_msectest(int argc, char *argv[])
 		printf("%d secs msec=%ld\n", i + 1, prev_msec);
 	}
 	return 0;
+}
+
+int cmd_gprinttext(int argc, char *argv[])
+{
+	int x, y;
+
+	if (argc != 4)
+		goto usage;
+	if (anyopts(argc, argv, "-h") > 0)
+		goto usage;
+
+	x = strtol(argv[1], NULL, 0);
+	if (x < 0 || x >= LCD_WIDTH)
+		goto usage;
+	y = strtol(argv[2], NULL, 0);
+	if (y < 0 || y >= LCD_HEIGHT)
+		goto usage;
+	printf("drawing text \"%s\" at (%d, %d)\n", argv[3], x, y);
+
+	for (char *p = argv[3]; *p; p++) {
+		x = plot_char(x, y, 1, *p);
+	}
+	return 0;
+
+usage:
+	printf("%s - Prints text at coordinates\n", argv[0]);
+	printf("Usage: %s <x> <y> \"any text\"\n", argv[0]);
+	return -1;
+}
+
+int cmd_drawrect(int argc, char *argv[])
+{
+	int		 x0, y0, x1, y1;
+	uint32_t argb32 = lcd_regs->argb;
+	uint32_t start_msec, end_msec;
+	int		 waitcount = 0;
+
+	if (argc < 5)
+		goto usage;
+	x0 = strtol(argv[1], NULL, 0);
+	if (x0 < 0 || x0 >= LCD_WIDTH)
+		goto usage;
+	y0 = strtol(argv[2], NULL, 0);
+	if (y0 < 0 || y0 >= LCD_HEIGHT)
+		goto usage;
+	x1 = strtol(argv[3], NULL, 0);
+	if (x1 < 0 || x1 >= LCD_WIDTH)
+		goto usage;
+	y1 = strtol(argv[4], NULL, 0);
+	if (y1 < 0 || y1 >= LCD_HEIGHT)
+		goto usage;
+
+	const char *color_str = colorname(argb32);
+
+	start_msec = systime_msec();
+	lcd_regs->x0y0 = (x0 & 0xffff) | ((y0 & 0xffff) << 16);
+	lcd_regs->x1y1 = (x1 & 0xffff) | ((y1 & 0xffff) << 16);
+	lcd_regs->ctrlstat = 0;
+	lcd_regs->ctrlstat = GPU_FRECT << 1 | 1;
+	while (waitcount++ < 10000 & (*GPU_CTRLSTAT & CTRLSTAT_BUSY))
+		;
+	lcd_regs->ctrlstat = 0;
+
+	end_msec = systime_msec();
+	printf("drawn filled rect from (%d, %d) to (%d, %d) with #%08X %s in "
+		   "%d counts, %ld msecs\n",
+		   x0, y0, x1, y1, argb32,
+		   color_str == NULL ? "" : color_str,
+		   waitcount, end_msec - start_msec);
+	return 0;
+
+usage:
+	printf("Usage: %s <x0> <y0> <x1> <y1>\n", argv[0]);
+	return -1;
 }

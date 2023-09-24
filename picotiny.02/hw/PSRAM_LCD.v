@@ -8,12 +8,14 @@ module PSRAM_FRAMEBUFFER_LCD (
     input [3:0] reg_wstrb,
     output [31:0] reg_rdata,
     output reg_ready,
+
     output LCD_DE,
     output LCD_HSYNC,
     output LCD_VSYNC,
     output [4:0] LCD_B,
     output [5:0] LCD_G,
     output [4:0] LCD_R,
+
     input clk_osc,
     input hclk_mem,
     input pll_lock,
@@ -25,6 +27,7 @@ module PSRAM_FRAMEBUFFER_LCD (
     input [3:0] mem_s_wstrb,
     output [31:0] mem_s_rdata,
     output mem_s_ready,
+
     output [1:0] O_psram_ck,
     output [1:0] O_psram_ck_n,
     inout [15:0] IO_psram_dq,
@@ -32,19 +35,31 @@ module PSRAM_FRAMEBUFFER_LCD (
     output [1:0] O_psram_cs_n,
     output [1:0] O_psram_reset_n
 );
+
+`define LCD_1024x600_7INCH_SIPEED
+`ifdef LCD_1024x600_7INCH_SIPEED
     localparam LCD_WIDTH = 16'd1024;
     localparam LCD_HEIGHT = 16'd600;
-
     localparam H_FrontPorch = 16'd210;
     localparam H_PulseWidth = 16'd16;
     localparam H_BackPorch = 16'd182;
-
     localparam V_FrontPorch = 16'd45;
     localparam V_PulseWidth = 16'd5;
     localparam V_BackPorch = 16'd0;
-
-    localparam BarCount = 9'd5;
-    localparam Width_bar = 45;
+    localparam VDMA_MAXBLKCNT = 8'd64;
+    localparam VDMA_LINEADDR_STRIDE = 23'd2048;
+`else // LCD_800x480_5INCH_SIPEED
+    localparam LCD_WIDTH = 16'd800;
+    localparam LCD_HEIGHT = 16'd480;
+    localparam H_FrontPorch = 16'd0;
+    localparam H_PulseWidth = 16'd256;
+    localparam H_BackPorch = 16'd0;
+    localparam V_FrontPorch = 16'd0; // 45 or 0
+    localparam V_PulseWidth = 16'd45;
+    localparam V_BackPorch = 16'd0; // 0 or 45
+    localparam VDMA_MAXBLKCNT = 8'd50;
+    localparam VDMA_LINEADDR_STRIDE = 23'd2048;
+`endif
 
     reg [10:0] CounterX;
     reg [9:0] CounterY;
@@ -56,7 +71,6 @@ module PSRAM_FRAMEBUFFER_LCD (
     reg [5:0] Data_G;
     reg [4:0] Data_B;
     wire [15:0] dout_o;
-    reg framestart;
 
     wire CounterXmaxed = (CounterX == (LCD_WIDTH + H_FrontPorch + H_PulseWidth + H_BackPorch));
     wire CounterYmaxed = (CounterY == (LCD_HEIGHT + V_FrontPorch + V_PulseWidth + V_BackPorch));
@@ -73,12 +87,15 @@ module PSRAM_FRAMEBUFFER_LCD (
     end
 
     always @(posedge pclk) begin
-        vga_HS <= (CounterX > (LCD_WIDTH + H_FrontPorch) && (CounterX < (LCD_WIDTH + H_FrontPorch + H_PulseWidth)));  // active for 96 clocks
-        vga_VS <= (CounterY > (LCD_HEIGHT+V_FrontPorch) && (CounterY < (LCD_HEIGHT+V_FrontPorch+V_PulseWidth)));  // active for 2 clocks
+        vga_HS <= (CounterX > (LCD_WIDTH + H_FrontPorch) &&
+                  (CounterX < (LCD_WIDTH + H_FrontPorch + H_PulseWidth)));
+        vga_VS <= (CounterY > (LCD_HEIGHT + V_FrontPorch) &&
+                  (CounterY < (LCD_HEIGHT + V_FrontPorch + V_PulseWidth)));
     end
 
     always @(posedge pclk) begin
-        inDisplayArea <= (CounterX > 0 && CounterX <= LCD_WIDTH) && (CounterY > 0 && CounterY <= LCD_HEIGHT);
+        inDisplayArea <= (CounterX > 0 && CounterX <= LCD_WIDTH) &&
+                         (CounterY > 0 && CounterY <= LCD_HEIGHT);
         Data_R <= dout_o[15:11];
         Data_G <= dout_o[10:5];
         Data_B <= dout_o[4:0];
@@ -90,6 +107,9 @@ module PSRAM_FRAMEBUFFER_LCD (
     assign LCD_R     = Data_R;
     assign LCD_G     = Data_G;
     assign LCD_B     = Data_B;
+
+    /*  to also start at line before zero because inDisplay starts at 1 */
+    wire vdma_start = vga_HS && ((CounterY < LCD_HEIGHT) || CounterYmaxed);
 
     wire [31:0] gpu_ctrl;
     wire [22:0] disp_addr;
@@ -184,63 +204,30 @@ module PSRAM_FRAMEBUFFER_LCD (
     reg [7:0] vdma_blkcnt;
     reg [9:0] vdma_lineidx;
     reg [22:0] vdma_lineaddr;
-    localparam VDMA_MAXBLKCNT = 8'd64;
-    localparam VDMA_LINEADDR_STRIDE = 23'd2048;
+
     reg [1:0] gpu_cmd_sr;
     reg gpu_setbg_start, gpu_setbg_cont;
-    reg gpu_setpt_start, gpu_setpt_cont;
-    reg gpu_setln_start, gpu_setln_cont;
-    /* set bg regs */
-    reg [22:0] set_bg_lineaddr;
-    reg [ 7:0] set_bg_blkcnt;
-    reg [ 9:0] set_bg_linecnt;
-    reg [15:0] work_pixblk;
+    reg gpu_setpt_start;
+    reg gpu_frect_start, gpu_frect_cont;
 
-    wire [15:0] x0_val, y0_val;
-    wire [15:0] x1_val, y1_val;
-    wire [22:0] y0_lineaddr;
-    wire [22:0] x0_blkaddr;
-    wire [15:0] pm, lm;
-    wire [63:0] x0_pixelmask32;
-    wire [63:0] lm_pixelmask32;
-    wire [22:0] y1_lineaddr;
-    wire [22:0] x1_blkaddr;
-    reg  [15:0] ln_pixelmask16;
-
-    // https://www.chipverify.com/verilog/verilog-functions
-    // https://stackoverflow.com/questions/20599522/how-to-find-max-or-min-in-verilog-coding
-    assign x0_val      = x0y0_point[15:0];
-    assign y0_val      = x0y0_point[31:16];
-    assign y0_lineaddr = work_addr + y0_val * VDMA_LINEADDR_STRIDE;
-    assign x0_blkaddr  = y0_lineaddr + ((x0_val * 2) & 16'b1111_1111_1110_0000);
-    assign x1_val      = x1y1_point[15:0];
-    assign y1_val      = x1y1_point[31:16];
-    assign y1_lineaddr = work_addr + y1_val * VDMA_LINEADDR_STRIDE;
-    assign x1_blkaddr  = y1_lineaddr + ((x1_val * 2) & 16'b1111_1111_1110_0000);
-    /* verilog_format: off */
-    assign x0_pixelmask32 = ~{ pm[15],pm[14],pm[13],pm[12],pm[15],pm[14],pm[13],pm[12],
-                                pm[11],pm[10],pm[9], pm[8], pm[11],pm[10],pm[9], pm[8],
-                                pm[7], pm[6], pm[5], pm[4], pm[7], pm[6], pm[5], pm[4],
-                                pm[3], pm[2], pm[1], pm[0], pm[3], pm[2], pm[1], pm[0] };
-    assign lm_pixelmask32 = ~{ lm[15],lm[14],lm[13],lm[12],lm[15],lm[14],lm[13],lm[12],
-                                lm[11],lm[10],lm[9], lm[8], lm[11],lm[10],lm[9], lm[8],
-                                lm[7], lm[6], lm[5], lm[4], lm[7], lm[6], lm[5], lm[4],
-                                lm[3], lm[2], lm[1], lm[0], lm[3], lm[2], lm[1], lm[0] };
-    /* verilog_format: on */
-    assign pm = (1'b1 << x0_val[3:0]);
-
+    wire [15:0] x0_val = x0y0_point[15:0];
+    wire [15:0] y0_val = x0y0_point[31:16];
+    wire [15:0] x1_val = x1y1_point[15:0];
+    wire [15:0] y1_val = x1y1_point[31:16];
+    
+    /* masks for line within a block of 16 pixels */
     wire [15:0] pixmask_on[0:15], pixmask_off[0:15];
 
-    assign pixmask_on[0] = 16'b1111_1111_1111_1111;
-    assign pixmask_on[1] = 16'b1111_1111_1111_1110;
-    assign pixmask_on[2] = 16'b1111_1111_1111_1100;
-    assign pixmask_on[3] = 16'b1111_1111_1111_1000;
-    assign pixmask_on[4] = 16'b1111_1111_1111_0000;
-    assign pixmask_on[5] = 16'b1111_1111_1110_0000;
-    assign pixmask_on[6] = 16'b1111_1111_1100_0000;
-    assign pixmask_on[7] = 16'b1111_1111_1000_0000;
-    assign pixmask_on[8] = 16'b1111_1111_0000_0000;
-    assign pixmask_on[9] = 16'b1111_1110_0000_0000;
+    assign pixmask_on[0]  = 16'b1111_1111_1111_1111;
+    assign pixmask_on[1]  = 16'b1111_1111_1111_1110;
+    assign pixmask_on[2]  = 16'b1111_1111_1111_1100;
+    assign pixmask_on[3]  = 16'b1111_1111_1111_1000;
+    assign pixmask_on[4]  = 16'b1111_1111_1111_0000;
+    assign pixmask_on[5]  = 16'b1111_1111_1110_0000;
+    assign pixmask_on[6]  = 16'b1111_1111_1100_0000;
+    assign pixmask_on[7]  = 16'b1111_1111_1000_0000;
+    assign pixmask_on[8]  = 16'b1111_1111_0000_0000;
+    assign pixmask_on[9]  = 16'b1111_1110_0000_0000;
     assign pixmask_on[10] = 16'b1111_1100_0000_0000;
     assign pixmask_on[11] = 16'b1111_1000_0000_0000;
     assign pixmask_on[12] = 16'b1111_0000_0000_0000;
@@ -248,16 +235,16 @@ module PSRAM_FRAMEBUFFER_LCD (
     assign pixmask_on[14] = 16'b1100_0000_0000_0000;
     assign pixmask_on[15] = 16'b1000_0000_0000_0000;
 
-    assign pixmask_off[0] = 16'b0000_0000_0000_0001;
-    assign pixmask_off[1] = 16'b0000_0000_0000_0011;
-    assign pixmask_off[2] = 16'b0000_0000_0000_0111;
-    assign pixmask_off[3] = 16'b0000_0000_0000_1111;
-    assign pixmask_off[4] = 16'b0000_0000_0001_1111;
-    assign pixmask_off[5] = 16'b0000_0000_0011_1111;
-    assign pixmask_off[6] = 16'b0000_0000_0111_1111;
-    assign pixmask_off[7] = 16'b0000_0000_1111_1111;
-    assign pixmask_off[8] = 16'b0000_0001_1111_1111;
-    assign pixmask_off[9] = 16'b0000_0011_1111_1111;
+    assign pixmask_off[0]  = 16'b0000_0000_0000_0001;
+    assign pixmask_off[1]  = 16'b0000_0000_0000_0011;
+    assign pixmask_off[2]  = 16'b0000_0000_0000_0111;
+    assign pixmask_off[3]  = 16'b0000_0000_0000_1111;
+    assign pixmask_off[4]  = 16'b0000_0000_0001_1111;
+    assign pixmask_off[5]  = 16'b0000_0000_0011_1111;
+    assign pixmask_off[6]  = 16'b0000_0000_0111_1111;
+    assign pixmask_off[7]  = 16'b0000_0000_1111_1111;
+    assign pixmask_off[8]  = 16'b0000_0001_1111_1111;
+    assign pixmask_off[9]  = 16'b0000_0011_1111_1111;
     assign pixmask_off[10] = 16'b0000_0111_1111_1111;
     assign pixmask_off[11] = 16'b0000_1111_1111_1111;
     assign pixmask_off[12] = 16'b0001_1111_1111_1111;
@@ -271,19 +258,33 @@ module PSRAM_FRAMEBUFFER_LCD (
         end
     endfunction
 
-    wire [3:0] x0_tested;
-    wire [3:0] x1_tested;
-    assign x0_tested = (work_pixblk > (x0_val >> 4)) ? 0 : x0_val & 4'b1111;
-    assign x1_tested = (work_pixblk < (x1_val >> 4)) ? 4'b1111 : x1_val & 4'b1111;
+    reg  [15:0] curr_x;
+    reg  [15:0] curr_y;
+    wire [22:0] curr_y_lineaddr = work_addr + curr_y * VDMA_LINEADDR_STRIDE;
+    /* be careful: memaddr is (x_pixs << 1), but is also in 4-byte alignment */
+    wire [22:0] curr_xy_blkaddr = (curr_y_lineaddr + ((curr_x << 1) & 16'b1111_1111_1110_0000)) >> 2;
 
-    // assign lm = pixmask(x0_val[3:0], x1_val[3:0]);
-    assign lm = pixmask(x0_tested, x1_tested);
+    wire [ 3:0] curr_x0_bounded = ((curr_x >> 4) > (x0_val >> 4)) ? 0 : x0_val & 4'b1111;
+    wire [ 3:0] curr_x1_bounded = ((curr_x >> 4) < (x1_val >> 4)) ? 4'b1111 : x1_val & 4'b1111;
+    wire [15:0] ln = pixmask(curr_x0_bounded, curr_x1_bounded);
 
-
+    wire [63:0] wdata_allpix_rgb565 = {rgb565, rgb565, rgb565, rgb565};
     // verilog_format: off
+    /* pixel point mask */
+    wire [15:0] pm = (1'b1 << x0_val[3:0]);
+    wire [63:0] pt_pixelmask32 = ~{ pm[15],pm[14],pm[13],pm[12],pm[15],pm[14],pm[13],pm[12],
+                                    pm[11],pm[10],pm[9], pm[8], pm[11],pm[10],pm[9], pm[8],
+                                    pm[7], pm[6], pm[5], pm[4], pm[7], pm[6], pm[5], pm[4],
+                                    pm[3], pm[2], pm[1], pm[0], pm[3], pm[2], pm[1], pm[0] };
+    /* line within block masking */
+    wire [63:0] ln_pixelmask32 = ~{ ln[15],ln[14],ln[13],ln[12],ln[15],ln[14],ln[13],ln[12],
+                                    ln[11],ln[10],ln[9], ln[8], ln[11],ln[10],ln[9], ln[8],
+                                    ln[7], ln[6], ln[5], ln[4], ln[7], ln[6], ln[5], ln[4],
+                                    ln[3], ln[2], ln[1], ln[0], ln[3], ln[2], ln[1], ln[0] };
+
     assign gpu_is_busy = gpu_setbg_start | gpu_setbg_cont |
-                         gpu_setpt_start | gpu_setpt_cont |
-                         gpu_setln_start | gpu_setln_cont;  
+                         gpu_setpt_start |
+                         gpu_frect_start | gpu_frect_cont;  
     // verilog_format: on
 
 
@@ -294,40 +295,44 @@ module PSRAM_FRAMEBUFFER_LCD (
             cmd_en_i        <= 0;
             read_back       <= 0;
             completed       <= 0;
+            vdma_waddr      <= 0;
+            vdma_wdata      <= 0;
             vdma_wstrb      <= 0;
             vdma_waitinc    <= 0;
+            vdma_wdata      <= 0;
             vdma_start_sr   <= 0;
             vdma_blkcnt     <= 0;
             vdma_lineidx    <= 0;
             gpu_cmd_sr      <= 0;
             gpu_setbg_start <= 0;
             gpu_setbg_cont  <= 0;
-            set_bg_blkcnt   <= 0;
-            set_bg_linecnt  <= 0;
             gpu_setpt_start <= 0;
-            gpu_setpt_cont  <= 0;
-            gpu_setln_start <= 0;
-            gpu_setln_cont  <= 0;
+            gpu_frect_start <= 0;
+            gpu_frect_cont  <= 0;
+            curr_x          <= 0;
+            curr_y          <= 0;
         end else begin
-            vdma_start_sr = {vdma_start_sr[1:0], vga_HS};
+            vdma_start_sr = {vdma_start_sr[1:0], vdma_start};
             gpu_cmd_sr <= {gpu_cmd_sr[0], gpu_ctrl[0]};
-            if (gpu_cmd_sr[1:0] == 2'b01)
-                case (gpu_ctrl[2:1])
-                    default: begin
-                        gpu_setbg_start <= 0;
-                        gpu_setbg_cont  <= 0;
-                        gpu_setpt_start <= 0;
-                        gpu_setpt_cont  <= 0;
-                        gpu_setln_start <= 0;
-                        gpu_setln_cont  <= 0;
+            if (gpu_cmd_sr[1:0] == 2'b01) begin
+                case (gpu_ctrl[4:1])
+                    1: begin
+                        gpu_setbg_start <= 1;
+                        curr_x          <= 0;
+                        curr_y          <= 0;
                     end
-                    1: gpu_setbg_start <= 1;
-                    2: gpu_setpt_start <= 1;
+                    2: begin
+                        gpu_setpt_start <= 1;
+                        curr_x          <= x0_val;
+                        curr_y          <= y0_val;
+                    end
                     3: begin
-                        gpu_setln_start <= 1;
-                        work_pixblk <= (x0_val >> 4);
+                        gpu_frect_start <= 1;
+                        curr_x          <= x0_val;
+                        curr_y          <= y0_val;
                     end
                 endcase
+            end
             case (state)
                 default: begin
                     cycle      <= 0;
@@ -338,7 +343,7 @@ module PSRAM_FRAMEBUFFER_LCD (
                         if (CounterY < LCD_HEIGHT) begin
                             // i.e. 0 < CounterY < 600
                             state        <= 3;  // set to vdma_read_State
-                            addr_i       <= {vdma_lineaddr[22:11], vdma_blkcnt[5:0], 3'b0};
+                            addr_i       <= {vdma_lineaddr[22:11], 6'b0, 3'b0};
                             data_mask_i  <= 'b0;
                             read_count   <= 0;
                             cmd_i        <= 0;
@@ -386,38 +391,32 @@ module PSRAM_FRAMEBUFFER_LCD (
                         gpu_setbg_start <= 0;
                         if (gpu_setbg_start) begin
                             gpu_setbg_cont  <= 1;
-                            set_bg_blkcnt   <= 0;
-                            set_bg_linecnt  <= 0;
-                            set_bg_lineaddr <= work_addr;
-                            addr_i          <= {work_addr[22:11], set_bg_blkcnt[5:0], 3'b0};
-                        end else begin
-                            addr_i <= {set_bg_lineaddr[22:11], set_bg_blkcnt[5:0], 3'b0};
                         end
+                        wrdata_i <= wdata_allpix_rgb565;
+                        data_mask_i <= 8'h00;
+                        addr_i <= curr_xy_blkaddr;
                         cmd_i <= 1;
                         cmd_en_i <= 1;
-                        wrdata_i <= {rgb565, rgb565, rgb565, rgb565};
-                        data_mask_i <= 8'h00;
-                    end else if (gpu_setpt_start || gpu_setpt_cont) begin
+                    end else if (gpu_setpt_start) begin
                         state <= 5;
                         gpu_setpt_start <= 0;
-                        gpu_setpt_cont <= 1;
-                        wrdata_i <= {rgb565, rgb565, rgb565, rgb565};
-                        data_mask_i <= x0_pixelmask32[7:0];
-                        addr_i <= x0_blkaddr >> 2;
+                        wrdata_i <= wdata_allpix_rgb565;
+                        data_mask_i <= pt_pixelmask32[7:0];
+                        addr_i <= curr_xy_blkaddr;
                         cmd_i <= 1;
                         cmd_en_i <= 1;
-                    end else if (gpu_setln_start || gpu_setln_cont) begin
+                    end else if (gpu_frect_start || gpu_frect_cont) begin
                         state <= 6;
-                        gpu_setln_start <= 0;
-                        wrdata_i <= {rgb565, rgb565, rgb565, rgb565};
-                        data_mask_i	<= lm_pixelmask32[7:0];
-                        addr_i <= (y0_lineaddr + ((work_pixblk << 5) & 16'b1111_1111_1110_0000)) >> 2;
+                        gpu_frect_start <= 0;
+                        if (gpu_frect_start) begin
+                            gpu_frect_cont <= 1;
+                        end
+                        wrdata_i <= wdata_allpix_rgb565;
+                        data_mask_i	<= ln_pixelmask32[7:0];
+                        addr_i <= curr_xy_blkaddr;
                         cmd_i <= 1;
                         cmd_en_i <= 1;
-                        if (gpu_setln_start) begin
-                            gpu_setln_cont <= 1;
-                        end
-                    end
+                    end 
                 end
                 1: begin  /* PSRAM write state */
                     cmd_en_i <= 0;
@@ -476,24 +475,20 @@ module PSRAM_FRAMEBUFFER_LCD (
                     /* gpu_setbg: same like PSRAM write state but write mem with bgcolor */
                     cmd_en_i <= 0;
                     cycle    <= cycle + 1'b1;
-                    /* turn off gpu_setbg_cont when limits are reached, but can still continue on state 4 */
-                    if ((set_bg_blkcnt == (VDMA_MAXBLKCNT - 1)) && (set_bg_linecnt >= (LCD_HEIGHT - 1)))begin
-                        gpu_setbg_cont <= 0;
+                    /* turn off gpu_setbg_cont when limits are reached, but can
+                     * still continue on state 4 until end of block-write */
+                    if (curr_x >= ((LCD_WIDTH - 1) & 16'b1111_1111_1111_0000) && curr_y >= (LCD_HEIGHT - 1)) begin
+                        gpu_setbg_cont  <= 0;
                     end
                     case (cycle)
-                        default: begin
-                            // keep writing all bits
-                            // no need to update wrdata_i and data_mask_i
-                        end
-                        13: begin
+                         13: begin
                             cycle <= 0;
                             state <= 0;
-                            if (set_bg_blkcnt == (VDMA_MAXBLKCNT - 1)) begin
-                                set_bg_blkcnt   <= 0;
-                                set_bg_linecnt  <= set_bg_linecnt + 1'b1;
-                                set_bg_lineaddr <= set_bg_lineaddr + VDMA_LINEADDR_STRIDE;
-                            end else begin
-                                set_bg_blkcnt <= set_bg_blkcnt + 1'b1;
+                            if (curr_x < ((LCD_WIDTH - 1) & 16'b1111_1111_1111_0000))
+                                curr_x <= curr_x + 16'd16;
+                            else begin
+                                curr_x <= 0;
+                                curr_y <= curr_y + 1'b1;
                             end
                         end
                     endcase
@@ -503,40 +498,42 @@ module PSRAM_FRAMEBUFFER_LCD (
                      * this will serve as a test of (a) calculating lineaddr from Y0
                      * with multiplication-and-add to workaddr_reg (b) calculating
                      * of byte(?) address and mask for pixel x-axis from X0. */
-                    /* gpu_setbg: same like PSRAM write state but write mem with bgcolor */
                     cmd_en_i <= 0;
                     cycle    <= cycle + 1'b1;
                     case (cycle)
-                        0: data_mask_i <= x0_pixelmask32[15:8];
-                        1: data_mask_i <= x0_pixelmask32[23:16];
-                        2: data_mask_i <= x0_pixelmask32[31:24];
+                        0: data_mask_i <= pt_pixelmask32[15:8];
+                        1: data_mask_i <= pt_pixelmask32[23:16];
+                        2: data_mask_i <= pt_pixelmask32[31:24];
                         default: data_mask_i <= 8'hff;
                         13: begin
                             cycle           <= 0;
                             state           <= 0;
                             gpu_setpt_start <= 0;
-                            gpu_setpt_cont  <= 0;
                         end
                     endcase
                 end
                 6: begin
-                    /* draw a horiz line from x0y0_reg to x1_val with color_reg */
+                    /* draw a filled rect from x0y0_reg to x1y1_reg with color_reg */
                     cmd_en_i <= 0;
                     cycle    <= cycle + 1'b1;
-                    if ((work_pixblk << 4) >= (x1_val & 16'b1111_1111_1111_0000)) begin
-                        gpu_setln_start <= 0;
-                        gpu_setln_cont  <= 0;
+                    if (curr_x >= (x1_val & 16'b1111_1111_1111_0000) && curr_y >= (y1_val)) begin
+                        gpu_frect_cont  <= 0;
                     end
                     case (cycle)
-                        0: data_mask_i <= lm_pixelmask32[15:8];
-                        1: data_mask_i <= lm_pixelmask32[23:16];
-                        2: data_mask_i <= lm_pixelmask32[31:24];
+                        0: data_mask_i <= ln_pixelmask32[15:8];
+                        1: data_mask_i <= ln_pixelmask32[23:16];
+                        2: data_mask_i <= ln_pixelmask32[31:24];
                         default:
-                        data_mask_i <= 8'hff;
+                            data_mask_i <= 8'hff;
                         13: begin
                             cycle <= 0;
                             state <= 0;
-                            work_pixblk <= work_pixblk + 1'b1;
+                            if (curr_x < (x1_val & 16'b1111_1111_1111_0000))
+                                curr_x <= curr_x + 16'd16;
+                            else begin
+                                curr_x <= x0_val;
+                                curr_y <= curr_y + 1'b1;
+                            end
                         end
                     endcase
                 end
@@ -565,7 +562,7 @@ module PSRAM_FRAMEBUFFER_LCD (
         .doutb(dout_o)  //output [15:0] doutb
     );
 
-endmodule
+endmodule /* PSRAM_FRAMEBUFFER_LCD */
 
 module FB_Registers (
     input cpu_clk,
@@ -597,8 +594,8 @@ module FB_Registers (
     reg ready_r;
 
     assign gpu_ctrl   = ctrl_stat_reg;
-    assign disp_addr  = disp_addr_reg;
-    assign work_addr  = work_addr_reg;
+    assign disp_addr  = disp_addr_reg[22:0];
+    assign work_addr  = work_addr_reg[22:0];
     assign x0y0_point = x0y0_reg;
     assign x1y1_point = x1y1_reg;
 
@@ -681,4 +678,4 @@ module FB_Registers (
     assign mem_ready = ready_r;
     assign mem_rdata = rdata_r;
 
-endmodule
+endmodule /* FB_Registers */
